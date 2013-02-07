@@ -7,8 +7,6 @@
 #include <sys/msg.h>
 #include <sys/shm.h>
 
-#define INTSIZE 8
-
 #define USER_NAME_MAX_LENGTH 10
 #define RESPONSE_LENGTH 50
 #define MAX_SERVERS_NUMBER 15
@@ -115,16 +113,16 @@ void Menu() {
 }
 
 void Get() {
-  printf(".");
+  // printf(".");
   GetRegister();
-  sleep(5);
+  // sleep(5);
 }
 
 void GetRegister() {
   MSG_RESPONSE msg_response;
   int i;
   int SthReceived;
-  SthReceived = msgrcv(GetQueueID, &msg_response, RESPONSE_LENGTH + INTSIZE, RESPONSE, IPC_NOWAIT);
+  SthReceived = msgrcv(GetQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), RESPONSE, IPC_NOWAIT);
   if (SthReceived > 0) { printf("Odbieram: %s\n", msg_response.content); }
 }
 
@@ -148,7 +146,7 @@ int PrintServers() {
   int i, ServersThere = 0;
   if (PrepareServerIDSM()) {
     printf("Dostępne serwery:\n");
-    for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != 0) printf("Serwer #%d: %d\n", i, server_ids[i]);
+    for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) printf("Serwer #%d: %d\n", i, server_ids[i]);
     ServersThere = 1;
   } else printf("Brak serwerow. Nie mozesz sie zalogowac.\n");
   return ServersThere;
@@ -156,15 +154,16 @@ int PrintServers() {
 
 int ServersOnline() {
   int i;
-  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != 0) return 1;
+  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) return 1;
   return 0;
 }
 
 // Rejestracja użytkownika na serwerze
 void Register() {
   char Username[USER_NAME_MAX_LENGTH];
-  int ServerID;
+  int ServerID, i;
   if (PrintServers()) { // sa serwery
+    for(i = 0; i < USER_NAME_MAX_LENGTH; i++) Username[i] = '\0';
     printf("Wpisz nazwe uzytkownika.\n");
     scanf("%s", Username);
     printf("Wpisz numer serwera, do ktorego chcesz sie zalogowac:\n");
@@ -173,7 +172,7 @@ void Register() {
       msg_login.type = LOGIN;
       strcpy(msg_login.username, Username);
       msg_login.ipc_num = GetQueueID;
-    msgsnd(server_ids[ServerID], &msg_login, USER_NAME_MAX_LENGTH + INTSIZE, 0);
+    msgsnd(server_ids[ServerID], &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
     printf("twoje queue id ktore podales to %d\n", GetQueueID);
     printf("Your request [%s, %d] was sent to the server. Wait for response...\n", Username, ServerID);
   }

@@ -7,8 +7,6 @@
 #include <sys/msg.h>
 #include <sys/shm.h>
 
-#define INTSIZE 8
-
 #define USER_NAME_MAX_LENGTH 10
 #define RESPONSE_LENGTH 50
 #define MAX_SERVERS_NUMBER 15
@@ -176,7 +174,7 @@ void Unregister() {
   int i;
   int ShMID;
   kill(MenuPID, 9);
-  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == GetQueueID) { server_ids[i] = 0; break; }
+  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == GetQueueID) { server_ids[i] = -1; break; }
   shmdt(server_ids);
   shmdt(user_server);
   msgctl(GetQueueID, IPC_RMID, NULL);
@@ -191,7 +189,7 @@ void Unregister() {
 int AmILastServer() {
   int i;
   int NumberOfServers = 0;
-  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == 0) NumberOfServers++;
+  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == -1) NumberOfServers++;
   if (NumberOfServers == 1) return 1;
   else return 0;
 }
@@ -217,10 +215,10 @@ int PrepareServerIDSM() {
     server_ids = (int*) shmat(ShMID, NULL, 0);
   } else { // tablica zostanie utworzona
     server_ids = (int*) shmat(ShMID, NULL, 0);
-    for (i = 0; i < MAX_SERVERS_NUMBER; i++) server_ids[i] = 0;
+    for (i = 0; i < MAX_SERVERS_NUMBER; i++) server_ids[i] = -1;
   }
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) {
-    if (server_ids[i] == 0) {
+    if (server_ids[i] == -1) {
       server_ids[i] = GetQueueID;
       return 1;
       break;
@@ -249,9 +247,9 @@ void PrepareUsersArray() {
 }
 
 void Get() {
-  printf(".");
+  // printf(".");
   GetLogin();
-  sleep(5);
+  // sleep(5);
 }
 
 void GetLogin() {
@@ -261,17 +259,15 @@ void GetLogin() {
   int WhereToLogin = -1;
   int Taken = 0;
   int SthReceived, SthSent;
-  SthReceived = msgrcv(GetQueueID, &msg_login, USER_NAME_MAX_LENGTH + INTSIZE, LOGIN, IPC_NOWAIT);
+  SthReceived = msgrcv(GetQueueID, &msg_login, sizeof(MSG_LOGIN) - sizeof(long), LOGIN, IPC_NOWAIT);
   if (SthReceived > 0) {
-    printf("Odbieram: %s, id queue: %d\n", msg_login.username, msg_login.ipc_num);
-    for (i = 0; i < MAX_USERS_NUMBER; i++) {
-      printf("Users[%d].Username = %s.\n", i, Users[i].Username);
+    for (i = 0; i < MAX_USERS_NUMBER; i++)
       if (!strcmp(Users[i].Username, "")) { WhereToLogin = i; break; } // returns 0 if equal
-      if (!strcmp(Users[i].Username, msg_login.username)) { Taken = 1; break; }
+    for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
+      if (!strcmp(user_server[i].user_name, msg_login.username)) { Taken = 1; break; }
     }
     printf("zebralem where to login = %d i nazwe czy jest taken = %d\n", WhereToLogin, Taken);
     if ((Taken == 0) && (WhereToLogin > -1)) {
-      printf("dupa1");
       for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
         if (!strcmp(user_server[i].user_name, "")) { // 0 if equal
           strcpy(Users[WhereToLogin].Username, msg_login.username);
@@ -281,7 +277,7 @@ void GetLogin() {
           msg_response.type = RESPONSE;
           msg_response.response_type = LOGIN_SUCCESS;
           strcpy(msg_response.content, "Zalogowano.");
-          SthSent = msgsnd(msg_login.ipc_num, &msg_response, RESPONSE_LENGTH + INTSIZE, 0);
+          SthSent = msgsnd(msg_login.ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
           if (!SthSent) printf("wysylam resonse o loginie na %d\n", msg_login.ipc_num);
           else printf("%d\n", SthSent);
           printf("oto tablica moich userow a dokladniej ten jeden indeks:\n");
@@ -290,22 +286,19 @@ void GetLogin() {
         }
       }
     } else {
-      printf("dupa");
       msg_response.type = RESPONSE;
       msg_response.response_type = LOGIN_FAILED;
-      strcpy(msg_response.content, "Nazwa uzyta przez innego uzytkownika lub nie ma miejsca na serwerze.");
-      printf("bum");
-      SthSent = msgsnd(msg_login.ipc_num, &msg_response, RESPONSE_LENGTH + INTSIZE, 0);
+      strcpy(msg_response.content, "Username taken or no space on server.\n");
+      SthSent = msgsnd(msg_login.ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
       if (!SthSent) printf("wysylam resonse o nieloginie na %d\n", msg_login.ipc_num);
       else printf("%d\n", SthSent);
     }
-    printf("aaaaaa\n");
   }
 }
 
 void PrintServers() {
   int i;
-  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != 0) printf("Serwer #%d: %d\n", i, server_ids[i]);
+  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) printf("Serwer #%d: %d\n", i, server_ids[i]);
 }
 
 void CreateGetQueue() {
