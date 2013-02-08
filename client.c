@@ -13,13 +13,9 @@
 #define MAX_USERS_NUMBER 20 //na jednym serwerze
 #define ROOM_NAME_MAX_LENGTH 10 // ??
 #define MAX_MSG_LENGTH 256
-
 #define SHM_SERVER_IDS 15
-#define SHM_USER_SERVER 20
-#define SHM_ROOM_SERVER 25
-
-#define SERVER_IDS_SM_ID 15 // ??
-
+#define SEM_SERVER_IDS 35
+#define SEM_LOGFILE 38
 
 // powiązania loginów z id serwerów w postaci tablicy struktur
 typedef struct {
@@ -194,7 +190,6 @@ void Register() {
       strcpy(msg_login.username, Username);
       msg_login.ipc_num = GetQueueID;
     msgsnd(server_ids[ServerID], &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
-    printf("Your request [%s, %d] was sent to the server. Wait for response...\n", Username, ServerID);
   }
 }
 

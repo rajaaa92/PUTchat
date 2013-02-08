@@ -13,8 +13,13 @@
 #define MAX_USERS_NUMBER 20 //na jednym serwerze
 #define ROOM_NAME_MAX_LENGTH 10
 #define MAX_MSG_LENGTH 256
-#define USER_SERVER_SM_ID 20
-#define SHM_SERVER_IDS 15 // !!
+#define SHM_SERVER_IDS 15
+#define SHM_USER_SERVER 20
+#define SHM_ROOM_SERVER 25
+#define SEM_SERVER_IDS 35
+#define SEM_USER_SERVER 36
+#define SEM_ROOM_SERVER 37
+#define SEM_LOGFILE 38
 
 // powiązania loginów z id serwerów w postaci tablicy struktur
 typedef struct {
@@ -182,7 +187,7 @@ void Unregister() {
   if (AmILastServer) {
     ShMID = shmget(SHM_SERVER_IDS, 0, 0);
     shmctl(ShMID, IPC_RMID, 0);
-    ShMID = shmget(USER_SERVER_SM_ID, 0, 0);
+    ShMID = shmget(SHM_USER_SERVER, 0, 0);
     shmctl(ShMID, IPC_RMID, 0);
   }
 }
@@ -197,7 +202,7 @@ int AmILastServer() {
 
 void Register() {
   int Success = PrepareServerIDSM();
-  if (Success == 0) {
+  if (!Success) {
     shmdt(server_ids);
     printf("Nie moge zarejestrowac serwera - brak miejsca.\n");
     exit(0);
@@ -229,21 +234,23 @@ int PrepareServerIDSM() {
 }
 
 void PrepareUSSM() {
-  int i;
-  int ShMID = shmget(USER_SERVER_SM_ID, 14 * MAX_SERVERS_NUMBER * MAX_USERS_NUMBER, IPC_EXCL | IPC_CREAT | 0777);
+  int i, j;
+  int ShMID = shmget(SHM_USER_SERVER, 14 * MAX_SERVERS_NUMBER * MAX_USERS_NUMBER, IPC_EXCL | IPC_CREAT | 0777);
   if (ShMID < 0) { // tablica już istnieje w pamięci
-    ShMID = shmget(USER_SERVER_SM_ID, 0, 0);
+    ShMID = shmget(SHM_USER_SERVER, 0, 0);
     user_server = (USER_SERVER*) shmat(ShMID, NULL, 0);
   } else { // tablica zostanie utworzona
     user_server = (USER_SERVER*) shmat(ShMID, NULL, 0);
-    for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) strcpy(user_server[i].user_name, "");
+    for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
+      for(j = 0; j < USER_NAME_MAX_LENGTH; j++) strcpy(user_server[i].user_name[j], "\0");
+    }
   }
 }
 
 void PrepareUsersArray() {
-  int i;
+  int i, j;
   for (i = 0; i < MAX_USERS_NUMBER; i++) {
-    strcpy(Users[i].Username, "");
+    for(j = 0; j < USER_NAME_MAX_LENGTH; j++) strcpy(Users[i].Username[j], "\0");
   }
 }
 
@@ -262,7 +269,6 @@ void GetLogout() {
   int SthReceived, SthSent;
   SthReceived = msgrcv(GetQueueID, &msg_login, sizeof(MSG_LOGIN) - sizeof(long), LOGOUT, IPC_NOWAIT);
   if (SthReceived > 0) {
-    printf("odebralem logout\n");
     for (i = 0; i < MAX_USERS_NUMBER; i++) {
       if (!strcmp(Users[i].Username, msg_login.username)) {
         for(j = 0; j < USER_NAME_MAX_LENGTH; j++) Users[i].Username[j] = '\0';
@@ -271,7 +277,6 @@ void GetLogout() {
         break;
       }
     }
-    printf("wyczyscilem 1\n");
     for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
       if (!strcmp(user_server[i].user_name, msg_login.username)) {
         for(j = 0; j < USER_NAME_MAX_LENGTH; j++) user_server[i].user_name[j] = '\0';
@@ -282,7 +287,6 @@ void GetLogout() {
       msg_response.response_type = LOGOUT_SUCCESS;
       strcpy(msg_response.content, "Wylogowano.\n");
     SthSent = msgsnd(ClientQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
-    printf("wyslalem\n");
   }
 }
 
@@ -300,32 +304,25 @@ void GetLogin() {
     for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
       if (!strcmp(user_server[i].user_name, msg_login.username)) { Taken = 1; break; }
     }
-    printf("zebralem where to login = %d i nazwe czy jest taken = %d\n", WhereToLogin, Taken);
     if ((Taken == 0) && (WhereToLogin > -1)) {
       for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
         if (!strcmp(user_server[i].user_name, "")) { // 0 if equal
-          strcpy(Users[WhereToLogin].Username, msg_login.username);
           Users[WhereToLogin].GetQueueID = msg_login.ipc_num;
-          strcpy(user_server[i].user_name, msg_login.username);
+            strcpy(Users[WhereToLogin].Username, msg_login.username);
           user_server[i].server_id = GetQueueID;
+            strcpy(user_server[i].user_name, msg_login.username);
           msg_response.type = RESPONSE;
-          msg_response.response_type = LOGIN_SUCCESS;
-          strcpy(msg_response.content, "Zalogowano.");
+            msg_response.response_type = LOGIN_SUCCESS;
+            strcpy(msg_response.content, "Zalogowano.");
           SthSent = msgsnd(msg_login.ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
-          if (!SthSent) printf("wysylam resonse o loginie na %d\n", msg_login.ipc_num);
-          else printf("%d\n", SthSent);
-          printf("oto tablica moich userow a dokladniej ten jeden indeks:\n");
-          printf("indeks: %d, Username: %s, GetQueueID: %d\n", WhereToLogin, Users[WhereToLogin].Username, Users[WhereToLogin].GetQueueID);
           break;
         }
       }
     } else {
       msg_response.type = RESPONSE;
-      msg_response.response_type = LOGIN_FAILED;
-      strcpy(msg_response.content, "Username taken or no space on server.\n");
+        msg_response.response_type = LOGIN_FAILED;
+        strcpy(msg_response.content, "Username taken or no space on server.\n");
       SthSent = msgsnd(msg_login.ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
-      if (!SthSent) printf("wysylam resonse o nieloginie na %d\n", msg_login.ipc_num);
-      else printf("%d\n", SthSent);
     }
   }
 }
