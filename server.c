@@ -242,7 +242,7 @@ void PrepareUSSM() {
   } else { // tablica zostanie utworzona
     user_server = (USER_SERVER*) shmat(ShMID, NULL, 0);
     for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
-      for(j = 0; j < USER_NAME_MAX_LENGTH; j++) strcpy(user_server[i].user_name[j], "\0");
+      for(j = 0; j < USER_NAME_MAX_LENGTH; j++) user_server[i].user_name[j] = '\0';
     }
   }
 }
@@ -250,7 +250,7 @@ void PrepareUSSM() {
 void PrepareUsersArray() {
   int i, j;
   for (i = 0; i < MAX_USERS_NUMBER; i++) {
-    for(j = 0; j < USER_NAME_MAX_LENGTH; j++) strcpy(Users[i].Username[j], "\0");
+    for(j = 0; j < USER_NAME_MAX_LENGTH; j++) Users[i].Username[j] = '\0';
   }
 }
 
