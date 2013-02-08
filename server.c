@@ -14,7 +14,7 @@
 #define ROOM_NAME_MAX_LENGTH 10
 #define MAX_MSG_LENGTH 256
 #define USER_SERVER_SM_ID 20
-#define SERVER_IDS_SM_ID 15
+#define SHM_SERVER_IDS 15 // !!
 
 // powiązania loginów z id serwerów w postaci tablicy struktur
 typedef struct {
@@ -98,6 +98,7 @@ void PrintAllUsers();
 void Unregister();
 void PrepareUSSM();
 void Get();
+void GetLogout();
 
 // pamięć współdzielona serwerów
 int* server_ids;
@@ -149,7 +150,7 @@ void PrintUsers() {
   int i;
   for (i = 0; i < MAX_USERS_NUMBER; i++) {
     if (strcmp(Users[i].Username, "")) { // strings egals -> return 0
-      printf("User #%d: %s listening at: %d.\n", i, Users[i].Username, Users[i].GetQueueID);
+      printf("User #%d: %s listening at: %d (QueueID).\n", i, Users[i].Username, Users[i].GetQueueID);
     }
   }
 }
@@ -158,7 +159,7 @@ void PrintAllUsers() {
   int i;
   for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
     if (strcmp(user_server[i].user_name, "")) { // strings egals -> return 0
-      printf("User #%d: %s @ %d.\n", i, user_server[i].user_name, user_server[i].server_id);
+      printf("User #%d: %s @ %d (serwer ID).\n", i, user_server[i].user_name, user_server[i].server_id);
     }
   }
 }
@@ -179,7 +180,7 @@ void Unregister() {
   shmdt(user_server);
   msgctl(GetQueueID, IPC_RMID, NULL);
   if (AmILastServer) {
-    ShMID = shmget(SERVER_IDS_SM_ID, 0, 0);
+    ShMID = shmget(SHM_SERVER_IDS, 0, 0);
     shmctl(ShMID, IPC_RMID, 0);
     ShMID = shmget(USER_SERVER_SM_ID, 0, 0);
     shmctl(ShMID, IPC_RMID, 0);
@@ -209,9 +210,9 @@ void Register() {
 
 int PrepareServerIDSM() {
   int i;
-  int ShMID = shmget(SERVER_IDS_SM_ID, 60, IPC_EXCL | IPC_CREAT | 0777);
+  int ShMID = shmget(SHM_SERVER_IDS, 60, IPC_EXCL | IPC_CREAT | 0777);
   if (ShMID < 0) { // tablica już istnieje w pamięci
-    ShMID = shmget(SERVER_IDS_SM_ID, 0, 0);
+    ShMID = shmget(SHM_SERVER_IDS, 0, 0);
     server_ids = (int*) shmat(ShMID, NULL, 0);
   } else { // tablica zostanie utworzona
     server_ids = (int*) shmat(ShMID, NULL, 0);
@@ -249,7 +250,40 @@ void PrepareUsersArray() {
 void Get() {
   // printf(".");
   GetLogin();
+  GetLogout();
   // sleep(5);
+}
+
+void GetLogout() {
+  MSG_LOGIN msg_login;
+  MSG_RESPONSE msg_response;
+  int i, j;
+  int ClientQueueID;
+  int SthReceived, SthSent;
+  SthReceived = msgrcv(GetQueueID, &msg_login, sizeof(MSG_LOGIN) - sizeof(long), LOGOUT, IPC_NOWAIT);
+  if (SthReceived > 0) {
+    printf("odebralem logout\n");
+    for (i = 0; i < MAX_USERS_NUMBER; i++) {
+      if (!strcmp(Users[i].Username, msg_login.username)) {
+        for(j = 0; j < USER_NAME_MAX_LENGTH; j++) Users[i].Username[j] = '\0';
+        ClientQueueID = Users[i].GetQueueID;
+        Users[i].GetQueueID = -1;
+        break;
+      }
+    }
+    printf("wyczyscilem 1\n");
+    for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
+      if (!strcmp(user_server[i].user_name, msg_login.username)) {
+        for(j = 0; j < USER_NAME_MAX_LENGTH; j++) user_server[i].user_name[j] = '\0';
+        user_server[i].server_id = -1;
+      }
+    }
+    msg_response.type = RESPONSE;
+      msg_response.response_type = LOGOUT_SUCCESS;
+      strcpy(msg_response.content, "Wylogowano.\n");
+    SthSent = msgsnd(ClientQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
+    printf("wyslalem\n");
+  }
 }
 
 void GetLogin() {

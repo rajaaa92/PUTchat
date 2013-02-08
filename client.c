@@ -11,9 +11,15 @@
 #define RESPONSE_LENGTH 50
 #define MAX_SERVERS_NUMBER 15
 #define MAX_USERS_NUMBER 20 //na jednym serwerze
-#define ROOM_NAME_MAX_LENGTH 10
+#define ROOM_NAME_MAX_LENGTH 10 // ??
 #define MAX_MSG_LENGTH 256
-#define SERVER_IDS_SM_ID 15
+
+#define SHM_SERVER_IDS 15
+#define SHM_USER_SERVER 20
+#define SHM_ROOM_SERVER 25
+
+#define SERVER_IDS_SM_ID 15 // ??
+
 
 // powiązania loginów z id serwerów w postaci tablicy struktur
 typedef struct {
@@ -80,15 +86,18 @@ typedef struct {
 void Quit();
 void Menu();
 void Get();
-void GetRegister();
+void GetResponse();
 void PrintMenu();
 void CreateGetQueue();
 void Register();
+void Logout();
 
 // lista id serwerów w postaci tablicy id kolejek, na których nasłuchują serwery
 int* server_ids;
 int MenuPID;
 int GetQueueID;
+char MyUsername[USER_NAME_MAX_LENGTH];
+int MyServerNr;
 
 // ------------------------------------------------------------------------
 
@@ -108,22 +117,32 @@ void Menu() {
       Register();
       break;
     case 0:
-      Quit();
+      Logout();
   }
 }
 
 void Get() {
   // printf(".");
-  GetRegister();
+  GetResponse();
   // sleep(5);
 }
 
-void GetRegister() {
+void GetResponse() {
   MSG_RESPONSE msg_response;
   int i;
   int SthReceived;
   SthReceived = msgrcv(GetQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), RESPONSE, IPC_NOWAIT);
-  if (SthReceived > 0) { printf("Odbieram: %s\n", msg_response.content); }
+  if (SthReceived > 0) {
+    printf("Odbieram: %s\n", msg_response.content);
+    if (msg_response.response_type == LOGOUT_SUCCESS) Quit();
+  }
+}
+
+void Logout() {
+  MSG_LOGIN msg_login;
+    msg_login.type = LOGOUT;
+    strcpy(msg_login.username, MyUsername);
+  msgsnd(server_ids[MyServerNr], &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
 }
 
 void PrintMenu() {
@@ -134,7 +153,7 @@ void PrintMenu() {
 void Quit() {
   msgctl(GetQueueID, IPC_RMID, NULL);
   kill(MenuPID, 9);
-  // wywal pamiec wspoldzielona
+  shmdt(server_ids);
   exit(0);
 }
 
@@ -168,23 +187,24 @@ void Register() {
     scanf("%s", Username);
     printf("Wpisz numer serwera, do ktorego chcesz sie zalogowac:\n");
     scanf("%d", &ServerID);
+    strcpy(MyUsername, Username);
+    MyServerNr = ServerID;
     MSG_LOGIN msg_login;
       msg_login.type = LOGIN;
       strcpy(msg_login.username, Username);
       msg_login.ipc_num = GetQueueID;
     msgsnd(server_ids[ServerID], &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
-    printf("twoje queue id ktore podales to %d\n", GetQueueID);
     printf("Your request [%s, %d] was sent to the server. Wait for response...\n", Username, ServerID);
   }
 }
 
 int PrepareServerIDSM() {
   int i;
-  int ShMID = shmget(SERVER_IDS_SM_ID, 0, 0);
+  int ShMID = shmget(SHM_SERVER_IDS, 0, 0);
   if (ShMID < 0) { // tablica nie istnieje
     return 0;
   } else { // tablica jest
     server_ids = (int*) shmat(ShMID, NULL, 0);
-    return 1;
+    return ShMID;
   }
 }
