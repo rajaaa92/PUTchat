@@ -37,7 +37,7 @@ enum MSG_TYPE {LOGIN=1, RESPONSE, LOGOUT, REQUEST, MESSAGE, ROOM, SERVER2SERVER,
 typedef struct {
   long type;
   char username[USER_NAME_MAX_LENGTH];
-  key_t ipc_num; //nr kolejki na której będzie nasłuchiwał klient
+  int ipc_num; //nr kolejki na której będzie nasłuchiwał klient
 } MSG_LOGIN;
 
 enum RESPONSE_TYPE {LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT_SUCCESS, LOGOUT_FAILED, MSG_SEND, MSG_NOT_SEND, ENTERED_ROOM_SUCCESS,
@@ -162,11 +162,13 @@ void PrintUsers() {
 
 void PrintAllUsers() {
   int i;
+  // opusc semafor user_server
   for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
     if (strcmp(user_server[i].user_name, "")) { // strings egals -> return 0
       printf("User #%d: %s @ %d (serwer ID).\n", i, user_server[i].user_name, user_server[i].server_id);
     }
   }
+  // podnies
 }
 
 void PrintMenu() {
@@ -180,22 +182,32 @@ void Unregister() {
   int i;
   int ShMID;
   kill(MenuPID, 9);
+  // opusc semafor server_ids
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == GetQueueID) { server_ids[i] = -1; break; }
   shmdt(server_ids);
+  // podnies semafor server_ids
+  // opusc semafor user_server
   shmdt(user_server);
+  // podnies semafor user_server
   msgctl(GetQueueID, IPC_RMID, NULL);
   if (AmILastServer) {
+    // opusc semafor server_ids
     ShMID = shmget(SHM_SERVER_IDS, 0, 0);
     shmctl(ShMID, IPC_RMID, 0);
+    // podnies semafor server_ids
+    // opusc semafor user_server
     ShMID = shmget(SHM_USER_SERVER, 0, 0);
     shmctl(ShMID, IPC_RMID, 0);
+    // podnies semafor user_server
   }
 }
 
 int AmILastServer() {
   int i;
   int NumberOfServers = 0;
+  // opusc semafor server_ids
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == -1) NumberOfServers++;
+    // podnies semafor server_ids
   if (NumberOfServers == 1) return 1;
   else return 0;
 }
@@ -203,7 +215,9 @@ int AmILastServer() {
 void Register() {
   int Success = PrepareServerIDSM();
   if (!Success) {
+    // opusc semafor server_ids
     shmdt(server_ids);
+    // podnies semafor server_ids
     printf("Nie moge zarejestrowac serwera - brak miejsca.\n");
     exit(0);
   } else {
@@ -215,6 +229,7 @@ void Register() {
 
 int PrepareServerIDSM() {
   int i;
+  // opusc semafor server_ids
   int ShMID = shmget(SHM_SERVER_IDS, 60, IPC_EXCL | IPC_CREAT | 0777);
   if (ShMID < 0) { // tablica już istnieje w pamięci
     ShMID = shmget(SHM_SERVER_IDS, 0, 0);
@@ -226,15 +241,17 @@ int PrepareServerIDSM() {
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) {
     if (server_ids[i] == -1) {
       server_ids[i] = GetQueueID;
+      // podnies semafor server_ids
       return 1;
-      break;
     }
   }
+  // podnies semafor server_ids
   return 0;
 }
 
 void PrepareUSSM() {
   int i, j;
+  // opusc semafor user_server
   int ShMID = shmget(SHM_USER_SERVER, 14 * MAX_SERVERS_NUMBER * MAX_USERS_NUMBER, IPC_EXCL | IPC_CREAT | 0777);
   if (ShMID < 0) { // tablica już istnieje w pamięci
     ShMID = shmget(SHM_USER_SERVER, 0, 0);
@@ -245,6 +262,7 @@ void PrepareUSSM() {
       for(j = 0; j < USER_NAME_MAX_LENGTH; j++) user_server[i].user_name[j] = '\0';
     }
   }
+  // podniesc semafor user_server
 }
 
 void PrepareUsersArray() {
@@ -277,12 +295,14 @@ void GetLogout() {
         break;
       }
     }
+    // opusc semafor user_server
     for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
       if (!strcmp(user_server[i].user_name, msg_login.username)) {
         for(j = 0; j < USER_NAME_MAX_LENGTH; j++) user_server[i].user_name[j] = '\0';
         user_server[i].server_id = -1;
       }
     }
+    // podnies semafor user_server
     msg_response.type = RESPONSE;
       msg_response.response_type = LOGOUT_SUCCESS;
       strcpy(msg_response.content, "Wylogowano.\n");
@@ -301,6 +321,7 @@ void GetLogin() {
   if (SthReceived > 0) {
     for (i = 0; i < MAX_USERS_NUMBER; i++)
       if (!strcmp(Users[i].Username, "")) { WhereToLogin = i; break; } // returns 0 if equal
+    // opusc semafor user_server
     for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
       if (!strcmp(user_server[i].user_name, msg_login.username)) { Taken = 1; break; }
     }
@@ -311,6 +332,7 @@ void GetLogin() {
             strcpy(Users[WhereToLogin].Username, msg_login.username);
           user_server[i].server_id = GetQueueID;
             strcpy(user_server[i].user_name, msg_login.username);
+          // podnies semafor user_server
           msg_response.type = RESPONSE;
             msg_response.response_type = LOGIN_SUCCESS;
             strcpy(msg_response.content, "Zalogowano.");
@@ -319,6 +341,7 @@ void GetLogin() {
         }
       }
     } else {
+      // podnies semafor user_server
       msg_response.type = RESPONSE;
         msg_response.response_type = LOGIN_FAILED;
         strcpy(msg_response.content, "Username taken or no space on server.\n");
@@ -329,7 +352,9 @@ void GetLogin() {
 
 void PrintServers() {
   int i;
+  // opusc semafor server_ids
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) printf("Serwer #%d: %d\n", i, server_ids[i]);
+  // podnies semafor server_ids
 }
 
 void CreateGetQueue() {

@@ -33,7 +33,7 @@ enum MSG_TYPE {LOGIN=1, RESPONSE, LOGOUT, REQUEST, MESSAGE, ROOM, SERVER2SERVER,
 typedef struct {
   long type;
   char username[USER_NAME_MAX_LENGTH];
-  key_t ipc_num; //nr kolejki na której będzie nasłuchiwał klient
+  int ipc_num; //nr kolejki na której będzie nasłuchiwał klient
 } MSG_LOGIN;
 
 enum RESPONSE_TYPE {LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT_SUCCESS, LOGOUT_FAILED, MSG_SEND, MSG_NOT_SEND, ENTERED_ROOM_SUCCESS,
@@ -138,7 +138,9 @@ void Logout() {
   MSG_LOGIN msg_login;
     msg_login.type = LOGOUT;
     strcpy(msg_login.username, MyUsername);
+  // opusc semafor server_ids
   msgsnd(server_ids[MyServerNr], &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
+  // podnies semafor server_ids
 }
 
 void PrintMenu() {
@@ -149,7 +151,9 @@ void PrintMenu() {
 void Quit() {
   msgctl(GetQueueID, IPC_RMID, NULL);
   kill(MenuPID, 9);
+  // opusc semafor server_ids
   shmdt(server_ids);
+  // podnies semafor server_ids
   exit(0);
 }
 
@@ -161,7 +165,9 @@ int PrintServers() {
   int i, ServersThere = 0;
   if (PrepareServerIDSM()) {
     printf("Dostępne serwery:\n");
+    // opusc semafr server_ids
     for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) printf("Serwer #%d: %d\n", i, server_ids[i]);
+    // podnies semafor server_ids
     ServersThere = 1;
   } else printf("Brak serwerow. Nie mozesz sie zalogowac.\n");
   return ServersThere;
@@ -169,7 +175,9 @@ int PrintServers() {
 
 int ServersOnline() {
   int i;
-  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) return 1;
+  // opusc semafor server_ids
+  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) { return 1; } // podnies!!!!!!
+  // podnies semafor server_ids
   return 0;
 }
 
@@ -189,17 +197,22 @@ void Register() {
       msg_login.type = LOGIN;
       strcpy(msg_login.username, Username);
       msg_login.ipc_num = GetQueueID;
+    // opusc semafor server_ids
     msgsnd(server_ids[ServerID], &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
+    // podnies semafor server_ids
   }
 }
 
 int PrepareServerIDSM() {
   int i;
+  // opusc semafor server_ids
   int ShMID = shmget(SHM_SERVER_IDS, 0, 0);
   if (ShMID < 0) { // tablica nie istnieje
+    // podnies semafor server_ids
     return 0;
   } else { // tablica jest
     server_ids = (int*) shmat(ShMID, NULL, 0);
+    // podnies semafor server_ids
     return ShMID;
   }
 }
