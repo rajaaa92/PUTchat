@@ -12,14 +12,13 @@
 #define USER_NAME_MAX_LENGTH 10
 #define RESPONSE_LENGTH 50
 #define MAX_SERVERS_NUMBER 15
-#define MAX_USERS_NUMBER 20 //na jednym serwerze
+#define MAX_USERS_NUMBER 20
 #define ROOM_NAME_MAX_LENGTH 10 // ??
 #define MAX_MSG_LENGTH 256
 #define SHM_SERVER_IDS 15
 #define SEM_SERVER_IDS 35
 #define SEM_LOGFILE 38
 
-// powiązania loginów z id serwerów w postaci tablicy struktur
 typedef struct {
   char user_name[USER_NAME_MAX_LENGTH];
   int server_id;
@@ -31,11 +30,11 @@ typedef struct {
   int server_id;
 } ROOM_SERVER;
 
-enum MSG_TYPE {LOGIN=1, RESPONSE, LOGOUT, REQUEST, MESSAGE, ROOM, SERVER2SERVER, M_USERS_LIST, M_ROOMS_LIST, M_ROOM_USERS_LIST};
+enum MSG_TYPE {LOGIN=1, RESPONSE, LOGOUT, REQUEST, MESSAGE, ROOM, SERVER2SERVER, USERS_LIST_TYPE, ROOMS_LIST_TYPE, ROOM_USERS_LIST_TYPE};
 typedef struct {
   long type;
   char username[USER_NAME_MAX_LENGTH];
-  int ipc_num; //nr kolejki na której będzie nasłuchiwał klient
+  int ipc_num;
 } MSG_LOGIN;
 
 enum RESPONSE_TYPE {LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT_SUCCESS, LOGOUT_FAILED, MSG_SEND, MSG_NOT_SEND, ENTERED_ROOM_SUCCESS,
@@ -43,7 +42,7 @@ enum RESPONSE_TYPE {LOGIN_SUCCESS, LOGIN_FAILED, LOGOUT_SUCCESS, LOGOUT_FAILED, 
 typedef struct {
   long type;
   int response_type;
-  char content[RESPONSE_LENGTH]; //można tu wpisad jakiś komunikat wyświetlany klientowi
+  char content[RESPONSE_LENGTH];
 } MSG_RESPONSE;
 
 enum REQUEST_TYPE{R_USERS_LIST, R_ROOMS_LIST, R_ROOM_USERS_LIST, PONG};
@@ -78,7 +77,7 @@ typedef struct {
 
 typedef struct {
   long type;
-  int server_ipc_num; //nr kolejki serwera, który wysyła tę strukturę
+  int server_ipc_num;
 } MSG_SERVER2SERVER;
 
 void Quit();
@@ -92,8 +91,9 @@ void Logout();
 void PrepareSemaphores();
 void P(int);
 void V(int);
+void SendPrintUsers();
+void GetUsersList();
 
-// lista id serwerów w postaci tablicy id kolejek, na których nasłuchują serwery
 int* server_ids;
 int MenuPID;
 int GetQueueID;
@@ -106,6 +106,8 @@ int Registered = 0;
 
 int main() {
   CreateGetQueue();
+  printf("moje getqueue id: %d\n", GetQueueID);
+  printf("msg type to: %d", USERS_LIST_TYPE);
   if (MenuPID = fork()) { while(1) Menu(); }
   else { while(1) Get(); }
   return 0;
@@ -138,6 +140,9 @@ void Menu() {
   PrintMenu();
   scanf("%d", &Navigate);
   switch (Navigate) {
+    case 2:
+      SendPrintUsers();
+      break;
     case 1:
       Register();
       break;
@@ -146,10 +151,31 @@ void Menu() {
   }
 }
 
+void PrintMenu() {
+  printf("2 - Wyswietl uzytkownikow\n");
+  printf("1 - Rejestracja uzytkownika\n");
+  printf("0 - Wyjscie\n");
+}
+
+void SendPrintUsers() {
+  MSG_REQUEST msg_request;
+    msg_request.type = REQUEST;
+    msg_request.request_type = USERS_LIST_TYPE;
+    printf("kopiuje msg_request.user_name << MyUserame --- %s << %s\n", msg_request.user_name, MyUsername);
+    strcpy(msg_request.user_name, MyUsername);
+    printf("teraz msgreq ma username: %s\n", msg_request.user_name);
+  P(server_ids_SemID);
+  printf("wysylam zaraz zapytanie o liste ludzi\n");
+  msgsnd(server_ids[MyServerNr], &msg_request, sizeof(MSG_REQUEST) - sizeof(long), 0);
+  printf("wyslalem zapytanie o liste ludzi\n");
+  V(server_ids_SemID);
+}
+
 void Get() {
   // printf(".");
   GetResponse();
-  // sleep(5);
+  GetUsersList();
+  sleep(5);
 }
 
 void GetResponse() {
@@ -164,6 +190,18 @@ void GetResponse() {
   }
 }
 
+void GetUsersList() {
+  MSG_USERS_LIST msg_users_list;
+  int i;
+  int SthReceived;
+  SthReceived = msgrcv(GetQueueID, &msg_users_list, sizeof(MSG_USERS_LIST) - sizeof(long), USERS_LIST_TYPE, IPC_NOWAIT);
+  if (SthReceived > 0) {
+    printf("All users:\n");
+    for(i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++)
+      if (strcmp(msg_users_list.users[i], "") != 0) printf("%s\n", msg_users_list.users[i]);
+  } else { printf(".\n"); }
+}
+
 void Logout() {
   MSG_LOGIN msg_login;
     msg_login.type = LOGOUT;
@@ -171,11 +209,6 @@ void Logout() {
   P(server_ids_SemID);
   msgsnd(server_ids[MyServerNr], &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
   V(server_ids_SemID);
-}
-
-void PrintMenu() {
-  printf("1 - Rejestracja uzytkownika\n");
-  printf("0 - Wyjscie\n");
 }
 
 void Quit() {

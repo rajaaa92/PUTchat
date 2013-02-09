@@ -8,6 +8,7 @@
 #include <sys/msg.h>
 #include <sys/shm.h>
 #include <sys/sem.h>
+#include <errno.h>
 
 #define USER_NAME_MAX_LENGTH 10
 #define RESPONSE_LENGTH 50
@@ -35,7 +36,7 @@ typedef struct {
   int server_id;
 } ROOM_SERVER;
 
-enum MSG_TYPE {LOGIN=1, RESPONSE, LOGOUT, REQUEST, MESSAGE, ROOM, SERVER2SERVER, M_USERS_LIST, M_ROOMS_LIST, M_ROOM_USERS_LIST};
+enum MSG_TYPE {LOGIN=1, RESPONSE, LOGOUT, REQUEST, MESSAGE, ROOM, SERVER2SERVER, USERS_LIST_TYPE, ROOMS_LIST_TYPE, ROOM_USERS_LIST_TYPE};
 typedef struct {
   long type;
   char username[USER_NAME_MAX_LENGTH];
@@ -109,6 +110,7 @@ void GetLogout();
 void PrepareSemaphores();
 void P(int);
 void V(int);
+void GetRequest();
 
 int* server_ids;
 int server_ids_SemID;
@@ -121,15 +123,13 @@ TUser Users[MAX_USERS_NUMBER];
 
 // ------------------------------------------------------------------------
 
-
-
 int main() {
   CreateGetQueue();
   PrepareSemaphores();
   Register();
   if (MenuPID = fork()) { while(1) Menu(); }
   else {
-    signal(30, PrintUsers);
+    signal(30, PrintAllUsers);
     while(1) Get();
   }
   return 0;
@@ -294,6 +294,7 @@ void PrepareUSSM() {
     user_server = (USER_SERVER*) shmat(ShMID, NULL, 0);
     for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
       for(j = 0; j < USER_NAME_MAX_LENGTH; j++) user_server[i].user_name[j] = '\0';
+      user_server[i].server_id = -1;
     }
   }
   V(user_server_SemID);
@@ -310,7 +311,52 @@ void Get() {
   // printf(".");
   GetLogin();
   GetLogout();
+  GetRequest();
   // sleep(5);
+}
+
+void GetRequest() {
+  MSG_REQUEST msg_request;
+  MSG_USERS_LIST msg_users_list;
+  int i, j = 0, k = 0, msg_size = 0;
+  int ClientQueueID;
+  int SthReceived, SthSent;
+  SthReceived = msgrcv(GetQueueID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), REQUEST, IPC_NOWAIT);
+  if (SthReceived > 0) {
+    if (msg_request.request_type == USERS_LIST_TYPE) {
+      msg_users_list.type = USERS_LIST_TYPE;
+      for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
+        strcpy(msg_users_list.users[i], "");
+      }
+      P(user_server_SemID);
+      j = 0;
+      for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
+        if (user_server[i].server_id != -1) {
+          // k = 0;
+          // while(user_server[i].user_name[k] != '\0') {
+          //   msg_users_list.users[j][k] = user_server[i].user_name[k];
+          //   k++;
+          // }
+          strcpy(msg_users_list.users[j], user_server[i].user_name);
+          msg_size += (strlen(msg_users_list.users[j]) + 1);
+          j++;
+        }
+      }
+      V(user_server_SemID);
+      for(i = 0; i < MAX_USERS_NUMBER; i++) {
+        if(strcmp(msg_request.user_name, Users[i].Username) == 0) {
+          SthSent = msgsnd(Users[i].GetQueueID, &msg_users_list, sizeof(MSG_USERS_LIST) - sizeof(long), 0);
+          if (SthSent == 0) printf("%d, wyslalem mu na %d typ %d\n", SthSent, Users[i].GetQueueID, USERS_LIST_TYPE);
+          else { printf("%d\n", errno); }
+          printf("oto co poszlo lub nie poszlo:\n");
+          for(i = 0; i < 15 * 20; i++) {
+            if (strcmp(msg_users_list.users[i], "") != 0) printf("%s\n", msg_users_list.users[i]);
+          }
+
+        }
+      }
+    }
+  }
 }
 
 void GetLogout() {
