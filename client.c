@@ -2,10 +2,12 @@
 #include <stdio.h>
 #include <signal.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include <sys/shm.h>
+#include <sys/sem.h>
 
 #define USER_NAME_MAX_LENGTH 10
 #define RESPONSE_LENGTH 50

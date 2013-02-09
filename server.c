@@ -2,10 +2,12 @@
 #include <stdio.h>
 #include <signal.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include <sys/shm.h>
+#include <sys/sem.h>
 
 #define USER_NAME_MAX_LENGTH 10
 #define RESPONSE_LENGTH 50
@@ -104,6 +106,9 @@ void Unregister();
 void PrepareUSSM();
 void Get();
 void GetLogout();
+void PrepareSemaphores();
+void P(int);
+void V(int);
 
 // pamięć współdzielona serwerów
 int* server_ids;
@@ -111,12 +116,36 @@ USER_SERVER* user_server;
 
 int GetQueueID;
 int MenuPID;
+int server_ids_SemID;
 TUser Users[MAX_USERS_NUMBER];
 
 // ------------------------------------------------------------------------
 
+void PrepareSemaphores() {
+  server_ids_SemID = semget(SEM_SERVER_IDS, 1, IPC_EXCL | IPC_CREAT | 0777);
+  if (server_ids_SemID < 0) server_ids_SemID = semget(SEM_SERVER_IDS, 1, 0); // sem juz istnieje
+  else semctl(server_ids_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+}
+
+void P(int SemID) {
+  struct sembuf sem_buf;
+    sem_buf.sem_num = 0;
+    sem_buf.sem_op = -1;
+    sem_buf.sem_flg = 0;
+  semop(SemID, &sem_buf, 1);
+}
+
+void V(int SemID) {
+  struct sembuf sem_buf;
+    sem_buf.sem_num = 0;
+    sem_buf.sem_op = 1;
+    sem_buf.sem_flg = 0;
+  semop(SemID, &sem_buf, 1);
+}
+
 int main() {
   CreateGetQueue();
+  PrepareSemaphores();
   Register();
   if (MenuPID = fork()) { while(1) Menu(); }
   else {
@@ -182,19 +211,19 @@ void Unregister() {
   int i;
   int ShMID;
   kill(MenuPID, 9);
-  // opusc semafor server_ids
+  P(server_ids_SemID);
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == GetQueueID) { server_ids[i] = -1; break; }
   shmdt(server_ids);
-  // podnies semafor server_ids
+  V(server_ids_SemID);
   // opusc semafor user_server
   shmdt(user_server);
   // podnies semafor user_server
   msgctl(GetQueueID, IPC_RMID, NULL);
   if (AmILastServer) {
-    // opusc semafor server_ids
+    P(server_ids_SemID);
     ShMID = shmget(SHM_SERVER_IDS, 0, 0);
     shmctl(ShMID, IPC_RMID, 0);
-    // podnies semafor server_ids
+    V(server_ids_SemID);
     // opusc semafor user_server
     ShMID = shmget(SHM_USER_SERVER, 0, 0);
     shmctl(ShMID, IPC_RMID, 0);
@@ -205,9 +234,9 @@ void Unregister() {
 int AmILastServer() {
   int i;
   int NumberOfServers = 0;
-  // opusc semafor server_ids
+  P(server_ids_SemID);
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == -1) NumberOfServers++;
-    // podnies semafor server_ids
+  V(server_ids_SemID);
   if (NumberOfServers == 1) return 1;
   else return 0;
 }
@@ -215,9 +244,9 @@ int AmILastServer() {
 void Register() {
   int Success = PrepareServerIDSM();
   if (!Success) {
-    // opusc semafor server_ids
+    P(server_ids_SemID);
     shmdt(server_ids);
-    // podnies semafor server_ids
+    V(server_ids_SemID);
     printf("Nie moge zarejestrowac serwera - brak miejsca.\n");
     exit(0);
   } else {
@@ -229,7 +258,7 @@ void Register() {
 
 int PrepareServerIDSM() {
   int i;
-  // opusc semafor server_ids
+  P(server_ids_SemID);
   int ShMID = shmget(SHM_SERVER_IDS, 60, IPC_EXCL | IPC_CREAT | 0777);
   if (ShMID < 0) { // tablica już istnieje w pamięci
     ShMID = shmget(SHM_SERVER_IDS, 0, 0);
@@ -241,11 +270,11 @@ int PrepareServerIDSM() {
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) {
     if (server_ids[i] == -1) {
       server_ids[i] = GetQueueID;
-      // podnies semafor server_ids
+      V(server_ids_SemID);
       return 1;
     }
   }
-  // podnies semafor server_ids
+  V(server_ids_SemID);
   return 0;
 }
 
@@ -352,9 +381,9 @@ void GetLogin() {
 
 void PrintServers() {
   int i;
-  // opusc semafor server_ids
+  P(server_ids_SemID);
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) printf("Serwer #%d: %d\n", i, server_ids[i]);
-  // podnies semafor server_ids
+    V(server_ids_SemID);
 }
 
 void CreateGetQueue() {
