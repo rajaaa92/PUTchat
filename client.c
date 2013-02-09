@@ -89,13 +89,18 @@ void PrintMenu();
 void CreateGetQueue();
 void Register();
 void Logout();
+void PrepareSemaphores();
+void P(int);
+void V(int);
 
 // lista id serwerów w postaci tablicy id kolejek, na których nasłuchują serwery
 int* server_ids;
 int MenuPID;
 int GetQueueID;
+int server_ids_SemID;
 char MyUsername[USER_NAME_MAX_LENGTH];
 int MyServerNr;
+int Registered = 0;
 
 // ------------------------------------------------------------------------
 
@@ -104,6 +109,28 @@ int main() {
   if (MenuPID = fork()) { while(1) Menu(); }
   else { while(1) Get(); }
   return 0;
+}
+
+void PrepareSemaphores() {
+  server_ids_SemID = semget(SEM_SERVER_IDS, 1, IPC_EXCL | IPC_CREAT | 0777);
+  if (server_ids_SemID < 0) server_ids_SemID = semget(SEM_SERVER_IDS, 1, 0); // sem juz istnieje
+  else semctl(server_ids_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+}
+
+void P(int SemID) {
+  struct sembuf sem_buf;
+    sem_buf.sem_num = 0;
+    sem_buf.sem_op = -1;
+    sem_buf.sem_flg = 0;
+  semop(SemID, &sem_buf, 1);
+}
+
+void V(int SemID) {
+  struct sembuf sem_buf;
+    sem_buf.sem_num = 0;
+    sem_buf.sem_op = 1;
+    sem_buf.sem_flg = 0;
+  semop(SemID, &sem_buf, 1);
 }
 
 void Menu() {
@@ -115,7 +142,7 @@ void Menu() {
       Register();
       break;
     case 0:
-      Logout();
+      if (Registered) Logout(); else Quit();
   }
 }
 
@@ -133,6 +160,7 @@ void GetResponse() {
   if (SthReceived > 0) {
     printf("Odbieram: %s\n", msg_response.content);
     if (msg_response.response_type == LOGOUT_SUCCESS) Quit();
+    if (msg_response.response_type == LOGIN_SUCCESS) Registered = 1;
   }
 }
 
@@ -140,9 +168,9 @@ void Logout() {
   MSG_LOGIN msg_login;
     msg_login.type = LOGOUT;
     strcpy(msg_login.username, MyUsername);
-  // opusc semafor server_ids
+  P(server_ids_SemID);
   msgsnd(server_ids[MyServerNr], &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
-  // podnies semafor server_ids
+  V(server_ids_SemID);
 }
 
 void PrintMenu() {
@@ -153,9 +181,9 @@ void PrintMenu() {
 void Quit() {
   msgctl(GetQueueID, IPC_RMID, NULL);
   kill(MenuPID, 9);
-  // opusc semafor server_ids
+  P(server_ids_SemID);
   shmdt(server_ids);
-  // podnies semafor server_ids
+  V(server_ids_SemID);
   exit(0);
 }
 
@@ -167,9 +195,9 @@ int PrintServers() {
   int i, ServersThere = 0;
   if (PrepareServerIDSM()) {
     printf("Dostępne serwery:\n");
-    // opusc semafr server_ids
+    P(server_ids_SemID);
     for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) printf("Serwer #%d: %d\n", i, server_ids[i]);
-    // podnies semafor server_ids
+    V(server_ids_SemID);
     ServersThere = 1;
   } else printf("Brak serwerow. Nie mozesz sie zalogowac.\n");
   return ServersThere;
@@ -177,9 +205,9 @@ int PrintServers() {
 
 int ServersOnline() {
   int i;
-  // opusc semafor server_ids
-  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) { return 1; } // podnies!!!!!!
-  // podnies semafor server_ids
+  P(server_ids_SemID);
+  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) { V(server_ids_SemID); return 1; }
+  V(server_ids_SemID);
   return 0;
 }
 
@@ -199,22 +227,22 @@ void Register() {
       msg_login.type = LOGIN;
       strcpy(msg_login.username, Username);
       msg_login.ipc_num = GetQueueID;
-    // opusc semafor server_ids
+    P(server_ids_SemID);
     msgsnd(server_ids[ServerID], &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
-    // podnies semafor server_ids
+    V(server_ids_SemID);
   }
 }
 
 int PrepareServerIDSM() {
   int i;
-  // opusc semafor server_ids
+  P(server_ids_SemID);
   int ShMID = shmget(SHM_SERVER_IDS, 0, 0);
   if (ShMID < 0) { // tablica nie istnieje
-    // podnies semafor server_ids
+    V(server_ids_SemID);
     return 0;
   } else { // tablica jest
     server_ids = (int*) shmat(ShMID, NULL, 0);
-    // podnies semafor server_ids
+    V(server_ids_SemID);
     return ShMID;
   }
 }

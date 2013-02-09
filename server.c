@@ -110,38 +110,18 @@ void PrepareSemaphores();
 void P(int);
 void V(int);
 
-// pamięć współdzielona serwerów
 int* server_ids;
+int server_ids_SemID;
 USER_SERVER* user_server;
+int user_server_SemID;
 
 int GetQueueID;
 int MenuPID;
-int server_ids_SemID;
 TUser Users[MAX_USERS_NUMBER];
 
 // ------------------------------------------------------------------------
 
-void PrepareSemaphores() {
-  server_ids_SemID = semget(SEM_SERVER_IDS, 1, IPC_EXCL | IPC_CREAT | 0777);
-  if (server_ids_SemID < 0) server_ids_SemID = semget(SEM_SERVER_IDS, 1, 0); // sem juz istnieje
-  else semctl(server_ids_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
-}
 
-void P(int SemID) {
-  struct sembuf sem_buf;
-    sem_buf.sem_num = 0;
-    sem_buf.sem_op = -1;
-    sem_buf.sem_flg = 0;
-  semop(SemID, &sem_buf, 1);
-}
-
-void V(int SemID) {
-  struct sembuf sem_buf;
-    sem_buf.sem_num = 0;
-    sem_buf.sem_op = 1;
-    sem_buf.sem_flg = 0;
-  semop(SemID, &sem_buf, 1);
-}
 
 int main() {
   CreateGetQueue();
@@ -173,7 +153,32 @@ void Menu() {
       case 0:
         Quit();
     }
-  }
+}
+
+void PrepareSemaphores() {
+  server_ids_SemID = semget(SEM_SERVER_IDS, 1, IPC_EXCL | IPC_CREAT | 0777);
+  if (server_ids_SemID < 0) server_ids_SemID = semget(SEM_SERVER_IDS, 1, 0); // sem juz istnieje
+  else semctl(server_ids_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+  user_server_SemID = semget(SEM_USER_SERVER, 1, IPC_EXCL | IPC_CREAT | 0777);
+  if (user_server_SemID < 0) user_server_SemID = semget(SEM_USER_SERVER, 1, 0); // sem juz istnieje
+  else semctl(user_server_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+}
+
+void P(int SemID) {
+  struct sembuf sem_buf;
+    sem_buf.sem_num = 0;
+    sem_buf.sem_op = -1;
+    sem_buf.sem_flg = 0;
+  semop(SemID, &sem_buf, 1);
+}
+
+void V(int SemID) {
+  struct sembuf sem_buf;
+    sem_buf.sem_num = 0;
+    sem_buf.sem_op = 1;
+    sem_buf.sem_flg = 0;
+  semop(SemID, &sem_buf, 1);
+}
 
 void Quit() {
   Unregister();
@@ -191,13 +196,13 @@ void PrintUsers() {
 
 void PrintAllUsers() {
   int i;
-  // opusc semafor user_server
+  P(user_server_SemID);
   for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
     if (strcmp(user_server[i].user_name, "")) { // strings egals -> return 0
       printf("User #%d: %s @ %d (serwer ID).\n", i, user_server[i].user_name, user_server[i].server_id);
     }
   }
-  // podnies
+  V(user_server_SemID);
 }
 
 void PrintMenu() {
@@ -215,19 +220,19 @@ void Unregister() {
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == GetQueueID) { server_ids[i] = -1; break; }
   shmdt(server_ids);
   V(server_ids_SemID);
-  // opusc semafor user_server
+  P(user_server_SemID);
   shmdt(user_server);
-  // podnies semafor user_server
+  V(user_server_SemID);
   msgctl(GetQueueID, IPC_RMID, NULL);
   if (AmILastServer) {
     P(server_ids_SemID);
     ShMID = shmget(SHM_SERVER_IDS, 0, 0);
     shmctl(ShMID, IPC_RMID, 0);
     V(server_ids_SemID);
-    // opusc semafor user_server
+    P(user_server_SemID);
     ShMID = shmget(SHM_USER_SERVER, 0, 0);
     shmctl(ShMID, IPC_RMID, 0);
-    // podnies semafor user_server
+    V(user_server_SemID);
   }
 }
 
@@ -280,7 +285,7 @@ int PrepareServerIDSM() {
 
 void PrepareUSSM() {
   int i, j;
-  // opusc semafor user_server
+  P(user_server_SemID);
   int ShMID = shmget(SHM_USER_SERVER, 14 * MAX_SERVERS_NUMBER * MAX_USERS_NUMBER, IPC_EXCL | IPC_CREAT | 0777);
   if (ShMID < 0) { // tablica już istnieje w pamięci
     ShMID = shmget(SHM_USER_SERVER, 0, 0);
@@ -291,7 +296,7 @@ void PrepareUSSM() {
       for(j = 0; j < USER_NAME_MAX_LENGTH; j++) user_server[i].user_name[j] = '\0';
     }
   }
-  // podniesc semafor user_server
+  V(user_server_SemID);
 }
 
 void PrepareUsersArray() {
@@ -324,14 +329,14 @@ void GetLogout() {
         break;
       }
     }
-    // opusc semafor user_server
+    P(user_server_SemID);
     for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
       if (!strcmp(user_server[i].user_name, msg_login.username)) {
         for(j = 0; j < USER_NAME_MAX_LENGTH; j++) user_server[i].user_name[j] = '\0';
         user_server[i].server_id = -1;
       }
     }
-    // podnies semafor user_server
+    V(user_server_SemID);
     msg_response.type = RESPONSE;
       msg_response.response_type = LOGOUT_SUCCESS;
       strcpy(msg_response.content, "Wylogowano.\n");
@@ -350,7 +355,7 @@ void GetLogin() {
   if (SthReceived > 0) {
     for (i = 0; i < MAX_USERS_NUMBER; i++)
       if (!strcmp(Users[i].Username, "")) { WhereToLogin = i; break; } // returns 0 if equal
-    // opusc semafor user_server
+    P(user_server_SemID);
     for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
       if (!strcmp(user_server[i].user_name, msg_login.username)) { Taken = 1; break; }
     }
@@ -361,7 +366,7 @@ void GetLogin() {
             strcpy(Users[WhereToLogin].Username, msg_login.username);
           user_server[i].server_id = GetQueueID;
             strcpy(user_server[i].user_name, msg_login.username);
-          // podnies semafor user_server
+          V(user_server_SemID);
           msg_response.type = RESPONSE;
             msg_response.response_type = LOGIN_SUCCESS;
             strcpy(msg_response.content, "Zalogowano.");
@@ -370,7 +375,7 @@ void GetLogin() {
         }
       }
     } else {
-      // podnies semafor user_server
+      V(user_server_SemID);
       msg_response.type = RESPONSE;
         msg_response.response_type = LOGIN_FAILED;
         strcpy(msg_response.content, "Username taken or no space on server.\n");
