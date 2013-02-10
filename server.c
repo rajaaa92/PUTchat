@@ -224,29 +224,40 @@ void GetRequest() {
 void GetMessage() {
   int i, Sent = 0;
   MSG_CHAT_MESSAGE msg_chat_message;
-  for(i = 0; i < USER_NAME_MAX_LENGTH; i++) { msg_chat_message.sender[i] = '\0'; }
   int SthReceived = msgrcv(GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), MESSAGE, IPC_NOWAIT);
   if (SthReceived > 0) {
-    printf("od sendera: %s\n", msg_chat_message.sender);
     if (msg_chat_message.msg_type == PRIVATE) {
       P(user_server_SemID);
+      printf("Sprawdzam czy odbiorca istnieje\n");
       for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
         if (strcmp(user_server[i].user_name, msg_chat_message.receiver) == 0) {
-          if (user_server[i].server_id == GetQueueID)
+          printf("Sprawdzam czy odbiorca jest na moim serwerze\n");
+          if (user_server[i].server_id == GetQueueID) {
+            printf("Wysylam wiadomosc do odbiorcy\n");
             SendMsgToUser(msg_chat_message);
-          else {
+            Sent = 1;
+          } else {
+            printf("Sprawdze dostepnosc serwera na ktorym odbiorca\n");
             Checking = 1;
             SendCheckServer(user_server[i].server_id);
             if (GetCheckServer(1)) {
-              Sent = 1;
+              printf("Wysylam wiadomosc na serwer odbiorcy\n");
               SendMsgToServer(user_server[i].server_id, msg_chat_message);
-              SendMsgSent(UserQueueID(msg_chat_message.sender));
+              Sent = 1;
             }
           }
         }
       }
       V(user_server_SemID);
-      if (!Sent) SendMsgNotSent(UserQueueID(msg_chat_message.sender));
+      if (Sent) {
+        if (UserQueueID(msg_chat_message.sender) != -1) {
+          printf("Wysylam potweirdzenie do nadawcy\n");
+          SendMsgSent(UserQueueID(msg_chat_message.sender));
+        }
+      } else {
+        printf("Wysylam info do nadawcy ze nie udalo sie wyslac wiadomosci\n");
+        SendMsgNotSent(UserQueueID(msg_chat_message.sender));
+      }
     }
   }
 }

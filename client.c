@@ -8,6 +8,7 @@
 #include <sys/msg.h>
 #include <sys/shm.h>
 #include <sys/sem.h>
+#include <sys/time.h>
 
 #define USER_NAME_MAX_LENGTH 10
 #define RESPONSE_LENGTH 50
@@ -155,7 +156,7 @@ void GetResponse() {
   int SthReceived;
   SthReceived = msgrcv(GetQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), RESPONSE, IPC_NOWAIT);
   if (SthReceived > 0) {
-    printf("Odbieram: %s\n", msg_response.content);
+    printf("SERVER: %s\n", msg_response.content);
     if (msg_response.response_type == LOGOUT_SUCCESS) Quit();
     if (msg_response.response_type == LOGIN_SUCCESS) { LoggedIn = 1; kill(getppid(), 31); }
     PrintMenu();
@@ -217,15 +218,23 @@ void SendPrintUsers() {
 
 void SendMsgToUser() {
   int i;
+  char c;
+  time_t time_now = time(NULL);
+  struct tm time_now_local = *localtime(&time_now);
   MSG_CHAT_MESSAGE msg_chat_message;
     msg_chat_message.type = MESSAGE;
     msg_chat_message.msg_type = PRIVATE;
     strcpy(msg_chat_message.sender, MyUsername);
-    strcpy(msg_chat_message.send_time, "00:00");
+    msg_chat_message.send_time[0] = (char)(((int)'0') + (time_now_local.tm_hour / 10));
+    msg_chat_message.send_time[1] = (char)(((int)'0') + (time_now_local.tm_hour % 10));
+    msg_chat_message.send_time[2] = ':';
+    msg_chat_message.send_time[3] = (char)(((int)'0') + (time_now_local.tm_min / 10));
+    msg_chat_message.send_time[4] = (char)(((int)'0') + (time_now_local.tm_min % 10));
   printf("Receiver:\n");
   scanf("%s", msg_chat_message.receiver);
   printf("Message:\n");
-  scanf("%s", msg_chat_message.message);
+  scanf("%c%[^\n]", &c, msg_chat_message.message);
+  printf("Wysylam message\n");
   msgsnd(MyServerID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
 }
 
