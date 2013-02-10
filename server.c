@@ -137,6 +137,8 @@ void PrepareRSSM();
 void RegisterUserInRoom(char*, char*);
 void GetRoom();
 void SendRoomsList(int);
+void SendRoomLeft(int);
+void LeaveRoom(MSG_ROOM);
 
 int* server_ids;
 int server_ids_SemID;
@@ -332,6 +334,7 @@ int GetCheckServer(int Force) {
 
 void GetRoom() {
   MSG_ROOM msg_room;
+  int i, RoomUsersFromMyServer = 0;
   int SthReceived = msgrcv(GetQueueID, &msg_room, sizeof(MSG_ROOM) - sizeof(long), ROOM, IPC_NOWAIT);
   if (SthReceived > 0) {
     printf("Dostalem requesta o room\n");
@@ -339,6 +342,10 @@ void GetRoom() {
       printf("Ktos chce wejsc do roomu\n");
       RegisterUserInRoom(msg_room.user_name, msg_room.room_name);
       SendRoomEntered(UserQueueID(msg_room.user_name));
+    }
+    if (msg_room.operation_type == LEAVE_ROOM) {
+      LeaveRoom(msg_room);
+      SendRoomLeft(UserQueueID(msg_room.user_name));
     }
   }
 }
@@ -463,6 +470,14 @@ void SendRoomEntered(int ipc_num) {
     strcpy(msg_response.content, "Room entered.\n");
   msgsnd(ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
   printf("Wyslalem room entered\n");
+}
+
+void SendRoomLeft(int ipc_num) {
+  MSG_RESPONSE msg_response;
+    msg_response.type = RESPONSE;
+    msg_response.response_type = LEAVE_ROOM_SUCCESS;
+    strcpy(msg_response.content, "Room left.\n");
+  msgsnd(ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
 }
 
 // ------------------------- BEFORE ----------------------------------
@@ -690,6 +705,25 @@ void RegisterUserInRoom(char username[], char roomname[]) {
     if (strcmp(Users[i].Username, username) == 0) { strcpy(Users[i].Room, roomname); printf("przydzielilem user do roomu\n"); }
   }
 }
+
+void LeaveRoom(MSG_ROOM msg_room) {
+  int i, RoomUsersFromMyServer = 0;
+  for (i = 0; i < MAX_USERS_NUMBER; i++)
+    if (strcmp(Users[i].Username, msg_room.user_name) == 0) strcpy(Users[i].Room, "");
+  for (i = 0; i < MAX_USERS_NUMBER; i++)
+    if (strcmp(Users[i].Room, msg_room.room_name) == 0) RoomUsersFromMyServer++;
+  if (!RoomUsersFromMyServer) {
+    for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
+      if ((strcmp(room_server[i].room_name, msg_room.room_name) == 0) && (room_server[i].server_id == GetQueueID)) {
+        strcpy(room_server[i].room_name, "");
+        room_server[i].server_id = -1;
+      }
+    }
+  }
+}
+
+
+
 
 // ------------------------- HELPERS -------------------------------------
 

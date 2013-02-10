@@ -98,11 +98,13 @@ void SendHeartBeat();
 void SendEnterRoom();
 void GetRoomsList();
 void SendPrintRooms();
+void SendQuitRoom();
 
 int MenuPID;
 int GetQueueID;
 char MyUsername[USER_NAME_MAX_LENGTH];
 int MyServerID;
+char Room[ROOM_NAME_MAX_LENGTH];
 int LoggedIn = 0;
 
 // ------------ MENU i main -----------------------------------------------
@@ -124,6 +126,9 @@ void Menu() {
   PrintMenu();
   scanf("%d", &Navigate);
   switch (Navigate) {
+    case 7:
+      SendQuitRoom();
+      break;
     case 6:
       SendPrintRooms();
       break;
@@ -149,6 +154,7 @@ void Menu() {
 }
 
 void PrintMenu() {
+  printf("7 - Wyjscie z pokoju\n");
   printf("6 - Wyswietl pokoje\n");
   printf("5 - Wejscie do pokoju\n");
   printf("4 - Wyslij wiadomosc do wszystkich\n");
@@ -296,8 +302,20 @@ void SendEnterRoom() {
     strcpy(msg_room.user_name, MyUsername);
     printf("Podaj nazwe pokoju:\n");
     scanf("%s", msg_room.room_name);
+    strcpy(Room, msg_room.room_name);
   SthSent = msgsnd(MyServerID, &msg_room, sizeof(MSG_ROOM) - sizeof(long), 0);
   printf("SthSent = %d, Wyslalem requesta o room\n", SthSent);
+}
+
+void SendQuitRoom() {
+  int SthSent;
+  MSG_ROOM msg_room;
+    msg_room.type = ROOM;
+    msg_room.operation_type = LEAVE_ROOM;
+    strcpy(msg_room.user_name, MyUsername);
+    strcpy(msg_room.room_name, Room);
+    strcpy(Room, "");
+  SthSent = msgsnd(MyServerID, &msg_room, sizeof(MSG_ROOM) - sizeof(long), 0);
 }
 
 // ----------------- OTHER -----------------------------------------------------------
