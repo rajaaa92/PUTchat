@@ -296,25 +296,28 @@ void SendNotLoggedIn(int ipc_num) {
 }
 
 void SendLoggedOut(int ipc_num) {
+  int SthSent;
   MSG_RESPONSE msg_response;
     msg_response.type = RESPONSE;
     msg_response.response_type = LOGOUT_SUCCESS;
     strcpy(msg_response.content, "Wylogowano.\n");
-  msgsnd(ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
+  SthSent = msgsnd(ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
+  printf("Wyslalem loggedout na %d tyle bledow: %d\n", ipc_num, SthSent);
+
 }
 
 void SendMsgSent(int UserQueueID) {
   MSG_RESPONSE msg_response;
     msg_response.type = RESPONSE;
     msg_response.response_type = MSG_SEND;
-  msgsnd(UserQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), IPC_NOWAIT);
+  msgsnd(UserQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
 }
 
 void SendMsgNotSent(int UserQueueID) {
   MSG_RESPONSE msg_response;
     msg_response.type = RESPONSE;
     msg_response.response_type = MSG_NOT_SEND;
-  msgsnd(UserQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), IPC_NOWAIT);
+  msgsnd(UserQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
 }
 
 // ------------------------- BEFORE ----------------------------------

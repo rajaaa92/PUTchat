@@ -145,7 +145,7 @@ void PrintMenu() {
 // ------------------- GET --------------------------------------------------
 
 void Get() {
-  // printf(".");
+  printf("get\n");
   GetResponse();
   GetUsersList();
   GetMessage();
@@ -159,7 +159,9 @@ void GetResponse() {
   if (SthReceived > 0) {
     printf("Odbieram: %s\n", msg_response.content);
     if (msg_response.response_type == LOGOUT_SUCCESS) { printf("juhu, logout success\n"); Quit(); }
-    if (msg_response.response_type == LOGIN_SUCCESS) { LoggedIn = 1; kill(MenuPID, 31); }
+    if (msg_response.response_type == LOGIN_SUCCESS) { LoggedIn = 1; kill(getppid(), 31); }
+  } else {
+    printf(".\n");
   }
 }
 
