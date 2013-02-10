@@ -694,6 +694,7 @@ void RegisterUserInRoom(char username[], char roomname[]) {
   if (strcmp(roomname, "") != 0) { // opusc room
     strcpy(msg_room.user_name, username);
     strcpy(msg_room.room_name, roomname);
+    printf("robie leavrooma dla %s, %s\n", msg_room.room_name, msg_room.user_name);
     LeaveRoom(msg_room);
   }
   for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++)
@@ -714,12 +715,14 @@ void RegisterUserInRoom(char username[], char roomname[]) {
 void LeaveRoom(MSG_ROOM msg_room) {
   int i, RoomUsersFromMyServer = 0;
   for (i = 0; i < MAX_USERS_NUMBER; i++)
-    if (strcmp(Users[i].Username, msg_room.user_name) == 0) strcpy(Users[i].Room, "");
+    if (strcmp(Users[i].Username, msg_room.user_name) == 0) { printf("wykasowuje rooma lokalnie\n"); strcpy(Users[i].Room, ""); }
   for (i = 0; i < MAX_USERS_NUMBER; i++)
-    if (strcmp(Users[i].Room, msg_room.room_name) == 0) RoomUsersFromMyServer++;
+    if (strcmp(Users[i].Room, msg_room.room_name) == 0) { RoomUsersFromMyServer++; printf("tego rooma ode mnie uzywa %d\n", RoomUsersFromMyServer); }
   if (!RoomUsersFromMyServer) {
+    printf("nie ma ludzi ode mnie na tym serwerze\n");
     for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
       if ((strcmp(room_server[i].room_name, msg_room.room_name) == 0) && (room_server[i].server_id == GetQueueID)) {
+        printf("to moj room i ma ta nazwe: %s, wykasuje go\n", msg_room.room_name);
         strcpy(room_server[i].room_name, "");
         room_server[i].server_id = -1;
       }
