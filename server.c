@@ -89,6 +89,7 @@ typedef struct {
 typedef struct {
   char Username[USER_NAME_MAX_LENGTH];
   int GetQueueID;
+  int Alive;
 } TUser;
 
 void Quit();
@@ -126,6 +127,10 @@ void SendMsgToServer(int, MSG_CHAT_MESSAGE);
 void SendMsgSent(int);
 void SendMsgNotSent(int);
 void SendCheckServer(int);
+void UpdateAlive(char*);
+void SendHeartBeat();
+void RemoveDeadClients();
+void ClearAlive();
 
 int* server_ids;
 int server_ids_SemID;
@@ -140,6 +145,7 @@ int Checking = 0;
 // ---------------------------- MENU i main -------------------------------
 
 int main() {
+  int Time = 0;
   CreateGetQueue();
   PrepareSemaphores();
   Register();
@@ -147,7 +153,16 @@ int main() {
   if (MenuPID) { while(1) Menu(); }
   else {
     signal(30, PrintAllUsers);
-    while(1) Get();
+    while(1) {
+      Get();
+      if (Time % 5000 == 0) {
+        RemoveDeadClients();
+        ClearAlive();
+        Time = 0;
+      } else
+        if (Time % 1000 == 0) SendHeartBeat();
+      Time++;
+    }
   }
   return 0;
 }
@@ -216,6 +231,14 @@ void GetRequest() {
   int SthReceived = msgrcv(GetQueueID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), REQUEST, IPC_NOWAIT);
   if (SthReceived > 0) {
     if (msg_request.request_type == USERS_LIST_TYPE) SendUsersList(UserQueueID(msg_request.user_name));
+    if (msg_request.request_type == PONG) UpdateAlive(msg_request.user_name);
+  }
+}
+
+void UpdateAlive(char username[]) {
+  int i;
+  for (i = 0; i < MAX_USERS_NUMBER; i++) {
+    if (strcmp(Users[i].Username, username) == 0) Users[i].Alive = 1;
   }
 }
 
@@ -334,6 +357,17 @@ void SendCheckServer(int ipc_num) {
   msgsnd(ipc_num, &msg_server2server, sizeof(MSG_SERVER2SERVER) - sizeof(long), 0);
 }
 
+void SendHeartBeat() {
+  int i;
+  MSG_RESPONSE msg_response;
+    msg_response.type = RESPONSE;
+    msg_response.response_type = PING;
+    strcpy(msg_response.content, "ping");
+  for(i = 0; i < MAX_USERS_NUMBER; i++) {
+    msgsnd(Users[i].GetQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
+  }
+}
+
 // ---- responses:
 
 void SendLoggedIn(int ipc_num) {
@@ -437,7 +471,7 @@ void PrepareUSSM() {
 
 void PrepareUsersArray() {
   int i;
-  for (i = 0; i < MAX_USERS_NUMBER; i++) strcpy(Users[i].Username, "");
+  for (i = 0; i < MAX_USERS_NUMBER; i++) { strcpy(Users[i].Username, ""); Users[i].Alive = 0; }
 }
 
 void PrepareSemaphores() {
@@ -494,6 +528,7 @@ void RegisterUser(char name[], int ipc_num) {
       V(user_server_SemID);
       Users[WhereToLogin()].GetQueueID = ipc_num;
         strcpy(Users[WhereToLogin()].Username, name);
+        Users[WhereToLogin()].Alive = 1;
       break;
     }
   }
@@ -505,6 +540,7 @@ void LogoutUser(char name[]) {
     if (!strcmp(Users[i].Username, name)) {
       strcpy(Users[i].Username, "");
       Users[i].GetQueueID = -1;
+      Users[i].Alive = 0;
       break;
     }
   P(user_server_SemID);
@@ -541,6 +577,18 @@ void PrintServers() {
   P(server_ids_SemID);
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) printf("Serwer #%d: %d\n", i, server_ids[i]);
     V(server_ids_SemID);
+}
+
+void RemoveDeadClients() {
+  int i;
+  for (i = 0; i < MAX_USERS_NUMBER; i++) {
+    if (Users[i].Alive == 0) { SendLoggedOut(Users[i].GetQueueID); LogoutUser(Users[i].Username); }
+  }
+}
+
+void ClearAlive() {
+  int i;
+  for (i = 0; i < MAX_USERS_NUMBER; i++) Users[i].Alive = 0;
 }
 
 // ------------------------- HELPERS -------------------------------------

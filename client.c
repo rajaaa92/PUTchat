@@ -94,6 +94,7 @@ void GetUsersList();
 void SendMsg(int);
 void SetLoggedIn();
 void GetMessage();
+void SendHeartBeat();
 
 int MenuPID;
 int GetQueueID;
@@ -120,6 +121,9 @@ void Menu() {
   PrintMenu();
   scanf("%d", &Navigate);
   switch (Navigate) {
+    case 5:
+      SendEnterRoom();
+      break;
     case 4:
       SendMsg(PUBLIC);
       break;
@@ -139,6 +143,7 @@ void Menu() {
 }
 
 void PrintMenu() {
+  printf("5 - wejscie do pokoju\n");
   printf("4 - Wyslij wiadomosc do wszystkich\n");
   printf("3 - Wyslij wiadomosc do uzytkownika\n");
   printf("2 - Wyswietl uzytkownikow\n");
@@ -161,9 +166,11 @@ void GetResponse() {
   int SthReceived;
   SthReceived = msgrcv(GetQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), RESPONSE, IPC_NOWAIT);
   if (SthReceived > 0) {
-    printf("SERVER: %s\n", msg_response.content);
+    if (strcmp(msg_response.content, "ping") != 0)
+      printf("SERVER: %s\n", msg_response.content);
     if (msg_response.response_type == LOGOUT_SUCCESS) Quit();
     if (msg_response.response_type == LOGIN_SUCCESS) { LoggedIn = 1; kill(getppid(), 31); }
+    if (msg_response.response_type == PING) SendHeartBeat();
     PrintMenu();
   }
 }
@@ -184,8 +191,9 @@ void GetMessage() {
   MSG_CHAT_MESSAGE msg_chat_message;
   int SthReceived = msgrcv(GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), MESSAGE, IPC_NOWAIT);
   if (SthReceived > 0) {
-    printf("At %s\n", msg_chat_message.send_time);
-    printf("%s writes:\n", msg_chat_message.sender);
+    if (msg_chat_message.msg_type == PRIVATE) printf("--------- a new private message ------------\n");
+    else printf("--------------- a new public message ---------------\n");
+    printf("At %s %s writes:\n", msg_chat_message.send_time, msg_chat_message.sender);
     printf("%s\n", msg_chat_message.message);
   }
 }
@@ -222,7 +230,6 @@ void SendPrintUsers() {
 }
 
 void SendMsg(int type) {
-  int i, SthSent;
   char c;
   time_t time_now = time(NULL);
   struct tm time_now_local = *localtime(&time_now);
@@ -235,15 +242,27 @@ void SendMsg(int type) {
     msg_chat_message.send_time[2] = ':';
     msg_chat_message.send_time[3] = (char)(((int)'0') + (time_now_local.tm_min / 10));
     msg_chat_message.send_time[4] = (char)(((int)'0') + (time_now_local.tm_min % 10));
+    msg_chat_message.send_time[5] = '\0';
   if (type == PRIVATE) {
     printf("Receiver:\n");
     scanf("%s", msg_chat_message.receiver);
   }
   printf("Message:\n");
   scanf("%c%[^\n]", &c, msg_chat_message.message);
-  printf("Wysylam message %d (private = %d)\n", type, PRIVATE);
-  SthSent = msgsnd(MyServerID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
-  printf("Wyslalem %dB\n", SthSent);
+  msgsnd(MyServerID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+}
+
+void SendHeartBeat() {
+  MSG_REQUEST msg_request;
+    msg_request.type = REQUEST;
+    msg_request.request_type = PONG;
+    strcpy(msg_request.user_name, MyUsername);
+  msgsnd(MyServerID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), 0);
+}
+
+void SendEnterRoom() {
+
+  Klient wysyła do serwera komunikat w postaci struktury MSG _ROOM z polem type= ROOM, operation_type=ENTER_ROOM, user_name i room_name – wartości oczywiste. Serwer rejestruje danego użytkownika w danym pokoju po czym wysyła do klienta komunikat w postaci struktury MSG_RESPONSE z typem komunikatu RESPONSE i response_type=ENTERED_ROOM_SUCCESS. W przypadku niepowodzenia struktura wysłana do klienta ma wartości RESPONSE i ENTERED_ROOM_FAILED.
 }
 
 // ----------------- OTHER -----------------------------------------------------------
