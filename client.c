@@ -95,6 +95,9 @@ void SendMsg(int);
 void SetLoggedIn();
 void GetMessage();
 void SendHeartBeat();
+void SendEnterRoom();
+void GetRoomsList();
+void SendPrintRooms();
 
 int MenuPID;
 int GetQueueID;
@@ -121,6 +124,9 @@ void Menu() {
   PrintMenu();
   scanf("%d", &Navigate);
   switch (Navigate) {
+    case 6:
+      SendPrintRooms();
+      break;
     case 5:
       SendEnterRoom();
       break;
@@ -143,7 +149,8 @@ void Menu() {
 }
 
 void PrintMenu() {
-  printf("5 - wejscie do pokoju\n");
+  printf("6 - Wyswietl pokoje\n");
+  printf("5 - Wejscie do pokoju\n");
   printf("4 - Wyslij wiadomosc do wszystkich\n");
   printf("3 - Wyslij wiadomosc do uzytkownika\n");
   printf("2 - Wyswietl uzytkownikow\n");
@@ -157,6 +164,7 @@ void Get() {
   // printf(".\n");
   GetResponse();
   GetUsersList();
+  GetRoomsList();
   GetMessage();
   sleep(5);
 }
@@ -184,6 +192,17 @@ void GetUsersList() {
     printf("All users:\n");
     for(i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++)
       if (strcmp(msg_users_list.users[i], "") != 0) printf("%s\n", msg_users_list.users[i]);
+  }
+}
+
+void GetRoomsList() {
+  MSG_USERS_LIST msg_rooms_list;
+  int i;
+  int SthReceived = msgrcv(GetQueueID, &msg_rooms_list, sizeof(MSG_USERS_LIST) - sizeof(long), ROOMS_LIST_TYPE, IPC_NOWAIT);
+  if (SthReceived > 0) {
+    printf("All rooms:\n");
+    for(i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++)
+      if (strcmp(msg_rooms_list.users[i], "") != 0) printf("%s\n", msg_rooms_list.users[i]);
   }
 }
 
@@ -229,6 +248,15 @@ void SendPrintUsers() {
   msgsnd(MyServerID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), 0);
 }
 
+void SendPrintRooms() {
+  MSG_REQUEST msg_request;
+    msg_request.type = REQUEST;
+    msg_request.request_type = ROOMS_LIST_TYPE;
+    strcpy(msg_request.user_name, MyUsername);
+  msgsnd(MyServerID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), 0);
+  printf("Wyslalem requesta o print rooms\n");
+}
+
 void SendMsg(int type) {
   char c;
   time_t time_now = time(NULL);
@@ -261,8 +289,15 @@ void SendHeartBeat() {
 }
 
 void SendEnterRoom() {
-
-  Klient wysyła do serwera komunikat w postaci struktury MSG _ROOM z polem type= ROOM, operation_type=ENTER_ROOM, user_name i room_name – wartości oczywiste. Serwer rejestruje danego użytkownika w danym pokoju po czym wysyła do klienta komunikat w postaci struktury MSG_RESPONSE z typem komunikatu RESPONSE i response_type=ENTERED_ROOM_SUCCESS. W przypadku niepowodzenia struktura wysłana do klienta ma wartości RESPONSE i ENTERED_ROOM_FAILED.
+  int SthSent;
+  MSG_ROOM msg_room;
+    msg_room.type = ROOM;
+    msg_room.operation_type = ENTER_ROOM;
+    strcpy(msg_room.user_name, MyUsername);
+    printf("Podaj nazwe pokoju:\n");
+    scanf("%s", msg_room.room_name);
+  SthSent = msgsnd(MyServerID, &msg_room, sizeof(MSG_ROOM) - sizeof(long), 0);
+  printf("SthSent = %d, Wyslalem requesta o room\n", SthSent);
 }
 
 // ----------------- OTHER -----------------------------------------------------------

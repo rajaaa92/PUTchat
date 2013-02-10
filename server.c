@@ -90,6 +90,7 @@ typedef struct {
   char Username[USER_NAME_MAX_LENGTH];
   int GetQueueID;
   int Alive;
+  char Room[ROOM_NAME_MAX_LENGTH];
 } TUser;
 
 void Quit();
@@ -131,11 +132,18 @@ void UpdateAlive(char*);
 void SendHeartBeat();
 void RemoveDeadClients();
 void ClearAlive();
+void SendRoomEntered(int);
+void PrepareRSSM();
+void RegisterUserInRoom(char*, char*);
+void GetRoom();
+void SendRoomsList(int);
 
 int* server_ids;
 int server_ids_SemID;
 USER_SERVER* user_server;
 int user_server_SemID;
+ROOM_SERVER* room_server;
+int room_server_SemID;
 
 int GetQueueID;
 int MenuPID;
@@ -198,6 +206,7 @@ void Get() {
   GetRequest();
   GetMessage();
   GetCheckServer(0);
+  GetRoom();
   sleep(5);
 }
 
@@ -230,8 +239,10 @@ void GetRequest() {
   MSG_REQUEST msg_request;
   int SthReceived = msgrcv(GetQueueID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), REQUEST, IPC_NOWAIT);
   if (SthReceived > 0) {
+    printf("Jest jakis request\n");
     if (msg_request.request_type == USERS_LIST_TYPE) SendUsersList(UserQueueID(msg_request.user_name));
     if (msg_request.request_type == PONG) UpdateAlive(msg_request.user_name);
+    if (msg_request.request_type == ROOMS_LIST_TYPE) { printf("jest to o pokoje\n"); SendRoomsList(UserQueueID(msg_request.user_name)); }
   }
 }
 
@@ -319,6 +330,19 @@ int GetCheckServer(int Force) {
   }
 }
 
+void GetRoom() {
+  MSG_ROOM msg_room;
+  int SthReceived = msgrcv(GetQueueID, &msg_room, sizeof(MSG_ROOM) - sizeof(long), ROOM, IPC_NOWAIT);
+  if (SthReceived > 0) {
+    printf("Dostalem requesta o room\n");
+    if (msg_room.operation_type == ENTER_ROOM) {
+      printf("Ktos chce wejsc do roomu\n");
+      RegisterUserInRoom(msg_room.user_name, msg_room.room_name);
+      SendRoomEntered(UserQueueID(msg_room.user_name));
+    }
+  }
+}
+
 // --------------------------------- SEND ----------------------------------------------------
 
 void SendUsersList(int UserQueueID) {
@@ -335,6 +359,29 @@ void SendUsersList(int UserQueueID) {
     }
     V(user_server_SemID);
     msgsnd(UserQueueID, &msg_users_list, sizeof(MSG_USERS_LIST) - sizeof(long), IPC_NOWAIT);
+}
+
+void SendRoomsList(int UserQueueID) {
+  int i, SthSent;
+  MSG_USERS_LIST msg_rooms_list;
+    msg_rooms_list.type = ROOMS_LIST_TYPE;
+    printf("czyszcze pokoje\n");
+    for (i = 0; i < (MAX_SERVERS_NUMBER * MAX_USERS_NUMBER); i++) {
+      strcpy(msg_rooms_list.users[i], "");
+    }
+    printf("wyczyscilem pokoje\n");
+    P(room_server_SemID);
+    printf("kopiuje niepuste pokoje\n");
+    for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
+      if (room_server[i].server_id != -1) {
+        strcpy(msg_rooms_list.users[i], room_server[i].room_name);
+        printf("skopiowalem %s\n", room_server[i].room_name);
+      }
+    }
+    printf("Skopiowane\n");
+    V(room_server_SemID);
+    SthSent = msgsnd(UserQueueID, &msg_rooms_list, sizeof(MSG_USERS_LIST) - sizeof(long), IPC_NOWAIT);
+    printf("%d - wyslalem liste roomow\n", SthSent);
 }
 
 void SendMsgToUser(MSG_CHAT_MESSAGE msg_chat_message) {
@@ -409,6 +456,15 @@ void SendMsgNotSent(int UserQueueID) {
   msgsnd(UserQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
 }
 
+void SendRoomEntered(int ipc_num) {
+  MSG_RESPONSE msg_response;
+    msg_response.type = RESPONSE;
+    msg_response.response_type = ENTERED_ROOM_SUCCESS;
+    strcpy(msg_response.content, "Room entered.\n");
+  msgsnd(ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
+  printf("Wyslalem room entered\n");
+}
+
 // ------------------------- BEFORE ----------------------------------
 
 void CreateGetQueue() {
@@ -425,6 +481,7 @@ void Register() {
     exit(0);
   } else {
     PrepareUSSM();
+    PrepareRSSM();
     PrepareUsersArray();
     printf("Zarejestrowano serwer @%d.\n", GetQueueID);
   }
@@ -469,6 +526,23 @@ void PrepareUSSM() {
   V(user_server_SemID);
 }
 
+void PrepareRSSM() {
+  int i;
+  P(room_server_SemID);
+  int ShMID = shmget(SHM_ROOM_SERVER, sizeof(ROOM_SERVER) * MAX_SERVERS_NUMBER * MAX_USERS_NUMBER, IPC_EXCL | IPC_CREAT | 0777);
+  if (ShMID < 0) { // tablica już istnieje w pamięci
+    ShMID = shmget(SHM_ROOM_SERVER, 0, 0);
+    room_server = (ROOM_SERVER*) shmat(ShMID, NULL, 0);
+  } else { // tablica zostanie utworzona
+    room_server = (ROOM_SERVER*) shmat(ShMID, NULL, 0);
+    for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
+      strcpy(room_server[i].room_name, "");
+      room_server[i].server_id = -1;
+    }
+  }
+  V(room_server_SemID);
+}
+
 void PrepareUsersArray() {
   int i;
   for (i = 0; i < MAX_USERS_NUMBER; i++) { strcpy(Users[i].Username, ""); Users[i].Alive = 0; }
@@ -481,6 +555,9 @@ void PrepareSemaphores() {
   user_server_SemID = semget(SEM_USER_SERVER, 1, IPC_EXCL | IPC_CREAT | 0777);
   if (user_server_SemID < 0) user_server_SemID = semget(SEM_USER_SERVER, 1, 0); // sem juz istnieje
   else semctl(user_server_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+  room_server_SemID = semget(SEM_ROOM_SERVER, 1, IPC_EXCL | IPC_CREAT | 0777);
+  if (room_server_SemID < 0) room_server_SemID = semget(SEM_ROOM_SERVER, 1, 0); // sem juz istnieje
+  else semctl(room_server_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
 }
 
 // ------------------------- AFTER -----------------------------------
@@ -511,8 +588,13 @@ void Unregister() {
     ShMID = shmget(SHM_USER_SERVER, 0, 0);
     shmctl(ShMID, IPC_RMID, 0);
     V(user_server_SemID);
+    P(room_server_SemID);
+    ShMID = shmget(SHM_ROOM_SERVER, 0, 0);
+    shmctl(ShMID, IPC_RMID, 0);
+    V(room_server_SemID);
     semctl(user_server_SemID, IPC_RMID, NULL);
     semctl(server_ids_SemID, IPC_RMID, NULL);
+    semctl(room_server_SemID, IPC_RMID, NULL);
   }
 }
 
@@ -591,6 +673,24 @@ void ClearAlive() {
   for (i = 0; i < MAX_USERS_NUMBER; i++) Users[i].Alive = 0;
 }
 
+void RegisterUserInRoom(char username[], char roomname[]) {
+  int i, RoomExists = 0, where;
+  printf("Przelatuje roomy\n");
+  for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++)
+    if ((room_server[i].server_id == GetQueueID) && (strcmp(room_server[i].room_name, roomname) == 0)) RoomExists = 1;
+  if (!RoomExists) {
+    printf("Room nie istnieje\n");
+    where = WhereToRegister();
+    printf("where = %d\n", where);
+    strcpy(room_server[WhereToRegister()].room_name, roomname);
+    room_server[WhereToRegister()].server_id = GetQueueID;
+    printf("Utworzylem nowy room\n");
+  }
+  for (i = 0; i < MAX_USERS_NUMBER; i++) {
+    if (strcmp(Users[i].Username, username) == 0) { strcpy(Users[i].Room, roomname); printf("przydzielilem user do roomu\n"); }
+  }
+}
+
 // ------------------------- HELPERS -------------------------------------
 
 void P(int SemID) {
@@ -630,6 +730,13 @@ int WhereToLogin() {
   for (i = 0; i < MAX_USERS_NUMBER; i++)
     if (!strcmp(Users[i].Username, "")) { WhereToLogin = i; break; } // returns 0 if equal
   return WhereToLogin;
+}
+
+int WhereToRegister() {
+  int i;
+  for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++)
+    if (room_server[i].server_id == -1) break;
+  return i;
 }
 
 int UsernameTaken(char name[]) {
