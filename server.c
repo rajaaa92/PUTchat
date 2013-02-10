@@ -97,7 +97,6 @@ void PrintMenu();
 int AmILastServer();
 void Register();
 void PrepareUsersArray();
-void GetMessages();
 void GetLogin();
 void PrintServers();
 void CreateGetQueue();
@@ -126,6 +125,7 @@ void SendMsgToUser(MSG_CHAT_MESSAGE);
 void SendMsgToServer(int, MSG_CHAT_MESSAGE);
 void SendMsgSent(int);
 void SendMsgNotSent(int);
+void SendCheckServer(int);
 
 int* server_ids;
 int server_ids_SemID;
@@ -135,6 +135,7 @@ int user_server_SemID;
 int GetQueueID;
 int MenuPID;
 TUser Users[MAX_USERS_NUMBER];
+int Checking = 0;
 
 // ---------------------------- MENU i main -------------------------------
 
@@ -183,6 +184,7 @@ void Get() {
   GetLogout();
   GetRequest();
   GetMessage();
+  GetCheckServer(0);
   sleep(5);
 }
 
@@ -220,24 +222,49 @@ void GetRequest() {
 }
 
 void GetMessage() {
-  int i, ReceiverExists = 0;
+  int i, Sent = 0;
   MSG_CHAT_MESSAGE msg_chat_message;
+  for(i = 0; i < USER_NAME_MAX_LENGTH; i++) { msg_chat_message.sender[i] = '\0'; }
   int SthReceived = msgrcv(GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), MESSAGE, IPC_NOWAIT);
   if (SthReceived > 0) {
-    printf("rcvd: %d\n", SthReceived);
+    printf("od sendera: %s\n", msg_chat_message.sender);
     if (msg_chat_message.msg_type == PRIVATE) {
       P(user_server_SemID);
       for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
         if (strcmp(user_server[i].user_name, msg_chat_message.receiver) == 0) {
-          if (user_server[i].server_id == GetQueueID) SendMsgToUser(msg_chat_message);
-          else SendMsgToServer(user_server[i].server_id, msg_chat_message);
-          SendMsgSent(UserQueueID(msg_chat_message.sender));
-          ReceiverExists = 1;
+          if (user_server[i].server_id == GetQueueID)
+            SendMsgToUser(msg_chat_message);
+          else {
+            Checking = 1;
+            SendCheckServer(user_server[i].server_id);
+            if (GetCheckServer(1)) {
+              Sent = 1;
+              SendMsgToServer(user_server[i].server_id, msg_chat_message);
+              SendMsgSent(UserQueueID(msg_chat_message.sender));
+            }
+          }
         }
       }
       V(user_server_SemID);
-      if (!ReceiverExists) SendMsgNotSent(UserQueueID(msg_chat_message.sender));
+      if (!Sent) SendMsgNotSent(UserQueueID(msg_chat_message.sender));
     }
+  }
+}
+
+int GetCheckServer(int Force) {
+  int CheckingServerID;
+  int SthReceived;
+  MSG_SERVER2SERVER msg_server2server;
+  if (!Force) SthReceived = msgrcv(GetQueueID, &msg_server2server, sizeof(MSG_SERVER2SERVER) - sizeof(long), SERVER2SERVER, IPC_NOWAIT);
+  else SthReceived = msgrcv(GetQueueID, &msg_server2server, sizeof(MSG_SERVER2SERVER) - sizeof(long), SERVER2SERVER, 0);
+  if (SthReceived) {
+    if (!Checking) {
+      CheckingServerID = msg_server2server.server_ipc_num;
+      msg_server2server.server_ipc_num = GetQueueID;
+      SendCheckServer(CheckingServerID);
+    } else { Checking = 0; return 1; }
+  } else {
+    if (Checking) { Checking = 0; return 0; }
   }
 }
 
@@ -263,7 +290,6 @@ void SendMsgToUser(MSG_CHAT_MESSAGE msg_chat_message) {
   int i;
   for (i = 0; i < MAX_USERS_NUMBER; i++) {
     if (strcmp(Users[i].Username, msg_chat_message.receiver) == 0) {
-      printf("wysylam wiadomosc\n");
       msgsnd(Users[i].GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
     }
   }
@@ -271,6 +297,13 @@ void SendMsgToUser(MSG_CHAT_MESSAGE msg_chat_message) {
 
 void SendMsgToServer(int ServerID, MSG_CHAT_MESSAGE msg_chat_message) {
   msgsnd(ServerID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+}
+
+void SendCheckServer(int ipc_num) {
+  MSG_SERVER2SERVER msg_server2server;
+    msg_server2server.type = SERVER2SERVER;
+    msg_server2server.server_ipc_num = GetQueueID;
+  msgsnd(ipc_num, &msg_server2server, sizeof(MSG_SERVER2SERVER) - sizeof(long), 0);
 }
 
 // ---- responses:
@@ -303,6 +336,7 @@ void SendMsgSent(int UserQueueID) {
   MSG_RESPONSE msg_response;
     msg_response.type = RESPONSE;
     msg_response.response_type = MSG_SEND;
+    strcpy(msg_response.content, "Message sent.\n");
   msgsnd(UserQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
 }
 

@@ -187,7 +187,8 @@ void GetMessage() {
 // ------------------------------ SEND -----------------------------------------
 
 void SendLogin() {
-  strcpy(MyUsername, "");
+  int i;
+  for(i = 0; i < USER_NAME_MAX_LENGTH; i++) { MyUsername[i] = '\0'; }
   printf("Wpisz nazwe uzytkownika.\n");
   scanf("%s", MyUsername);
   printf("Wpisz ID serwera, do ktorego chcesz sie zalogowac:\n");
@@ -215,17 +216,16 @@ void SendPrintUsers() {
 }
 
 void SendMsgToUser() {
+  int i;
   MSG_CHAT_MESSAGE msg_chat_message;
     msg_chat_message.type = MESSAGE;
     msg_chat_message.msg_type = PRIVATE;
     strcpy(msg_chat_message.sender, MyUsername);
-    printf("ustawiam sendera jako %s", MyUsername);
-    strcpy(msg_chat_message.send_time, "kiedys");
+    strcpy(msg_chat_message.send_time, "00:00");
   printf("Receiver:\n");
   scanf("%s", msg_chat_message.receiver);
   printf("Message:\n");
   scanf("%s", msg_chat_message.message);
-  printf("wysylam wiadomosc\n");
   msgsnd(MyServerID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
 }
 
