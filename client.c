@@ -156,7 +156,7 @@ void Menu() {
 void PrintMenu() {
   printf("7 - Wyjscie z pokoju\n");
   printf("6 - Wyswietl pokoje\n");
-  printf("5 - Wejscie do pokoju\n");
+  printf("5 - Wejscie do pokoju / zmiana pokoju\n");
   printf("4 - Wyslij wiadomosc do wszystkich\n");
   printf("3 - Wyslij wiadomosc do uzytkownika\n");
   printf("2 - Wyswietl uzytkownikow\n");

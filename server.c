@@ -690,7 +690,12 @@ void ClearAlive() {
 
 void RegisterUserInRoom(char username[], char roomname[]) {
   int i, RoomExists = 0, where;
-  printf("Przelatuje roomy\n");
+  MSG_ROOM msg_room;
+  if (strcmp(roomname, "") != 0) { // opusc room
+    strcpy(msg_room.user_name, username);
+    strcpy(msg_room.room_name, roomname);
+    LeaveRoom(msg_room);
+  }
   for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++)
     if ((room_server[i].server_id == GetQueueID) && (strcmp(room_server[i].room_name, roomname) == 0)) RoomExists = 1;
   if (!RoomExists) {
