@@ -140,10 +140,8 @@ int Checking = 0;
 // ---------------------------- MENU i main -------------------------------
 
 int main() {
-  // Quit();
   CreateGetQueue();
   PrepareSemaphores();
-  // V(user_server_SemID);
   Register();
   MenuPID = fork();
   if (MenuPID) { while(1) Menu(); }
@@ -179,7 +177,7 @@ void PrintMenu() {
 // ------------------------------ GET ----------------------------------------------
 
 void Get() {
-  // printf(".");
+  // printf(".\n");
   GetLogin();
   GetLogout();
   GetRequest();
@@ -222,26 +220,21 @@ void GetRequest() {
 }
 
 void GetMessage() {
-  int i, Sent = 0;
+  int i, Sent = 0, SthSent;
   MSG_CHAT_MESSAGE msg_chat_message;
   int SthReceived = msgrcv(GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), MESSAGE, IPC_NOWAIT);
   if (SthReceived > 0) {
     if (msg_chat_message.msg_type == PRIVATE) {
       P(user_server_SemID);
-      printf("Sprawdzam czy odbiorca istnieje\n");
       for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
         if (strcmp(user_server[i].user_name, msg_chat_message.receiver) == 0) {
-          printf("Sprawdzam czy odbiorca jest na moim serwerze\n");
           if (user_server[i].server_id == GetQueueID) {
-            printf("Wysylam wiadomosc do odbiorcy\n");
             SendMsgToUser(msg_chat_message);
             Sent = 1;
           } else {
-            printf("Sprawdze dostepnosc serwera na ktorym odbiorca\n");
             Checking = 1;
             SendCheckServer(user_server[i].server_id);
             if (GetCheckServer(1)) {
-              printf("Wysylam wiadomosc na serwer odbiorcy\n");
               SendMsgToServer(user_server[i].server_id, msg_chat_message);
               Sent = 1;
             }
@@ -249,15 +242,35 @@ void GetMessage() {
         }
       }
       V(user_server_SemID);
-      if (Sent) {
-        if (UserQueueID(msg_chat_message.sender) != -1) {
-          printf("Wysylam potweirdzenie do nadawcy\n");
-          SendMsgSent(UserQueueID(msg_chat_message.sender));
+    } else { // if public
+      P(user_server_SemID);
+      for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
+        if ((user_server[i].server_id != -1) && (strcmp(user_server[i].user_name, msg_chat_message.sender) != 0)) {
+          strcpy(msg_chat_message.receiver, user_server[i].user_name);
+          msg_chat_message.msg_type = PRIVATE;
+          if (user_server[i].server_id == GetQueueID) {
+            SendMsgToUser(msg_chat_message);
+            Sent = 1;
+          } else {
+            Checking = 1;
+            SendCheckServer(user_server[i].server_id);
+            V(user_server_SemID);
+            if (GetCheckServer(1)) {
+              SendMsgToServer(user_server[i].server_id, msg_chat_message);
+              Sent = 1;
+            }
+            P(user_server_SemID);
+          }
         }
-      } else {
-        printf("Wysylam info do nadawcy ze nie udalo sie wyslac wiadomosci\n");
-        SendMsgNotSent(UserQueueID(msg_chat_message.sender));
       }
+      V(user_server_SemID);
+    }
+    if (Sent)
+      if (UserQueueID(msg_chat_message.sender) != -1)
+        SendMsgSent(UserQueueID(msg_chat_message.sender));
+    else {
+      if (UserQueueID(msg_chat_message.sender) != -1)
+        SendMsgNotSent(UserQueueID(msg_chat_message.sender));
     }
   }
 }
@@ -266,9 +279,13 @@ int GetCheckServer(int Force) {
   int CheckingServerID;
   int SthReceived;
   MSG_SERVER2SERVER msg_server2server;
-  if (!Force) SthReceived = msgrcv(GetQueueID, &msg_server2server, sizeof(MSG_SERVER2SERVER) - sizeof(long), SERVER2SERVER, IPC_NOWAIT);
-  else SthReceived = msgrcv(GetQueueID, &msg_server2server, sizeof(MSG_SERVER2SERVER) - sizeof(long), SERVER2SERVER, 0);
-  if (SthReceived) {
+  if (!Force) {
+    SthReceived = msgrcv(GetQueueID, &msg_server2server, sizeof(MSG_SERVER2SERVER) - sizeof(long), SERVER2SERVER, IPC_NOWAIT);
+  }
+  else {
+    SthReceived = msgrcv(GetQueueID, &msg_server2server, sizeof(MSG_SERVER2SERVER) - sizeof(long), SERVER2SERVER, 0);
+  }
+  if (SthReceived > 0) {
     if (!Checking) {
       CheckingServerID = msg_server2server.server_ipc_num;
       msg_server2server.server_ipc_num = GetQueueID;

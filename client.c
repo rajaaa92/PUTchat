@@ -91,7 +91,7 @@ void SendLogin();
 void SendLogout();
 void SendPrintUsers();
 void GetUsersList();
-void SendMsgToUser();
+void SendMsg(int);
 void SetLoggedIn();
 void GetMessage();
 
@@ -105,7 +105,7 @@ int LoggedIn = 0;
 
 int main() {
   CreateGetQueue();
-  printf("%d\n", GetQueueID);
+  // printf("%d\n", GetQueueID);
   MenuPID = fork();
   if (MenuPID) {
     signal(31, SetLoggedIn);
@@ -120,8 +120,11 @@ void Menu() {
   PrintMenu();
   scanf("%d", &Navigate);
   switch (Navigate) {
+    case 4:
+      SendMsg(PUBLIC);
+      break;
     case 3:
-      SendMsgToUser();
+      SendMsg(PRIVATE);
       break;
     case 2:
       SendPrintUsers();
@@ -136,6 +139,7 @@ void Menu() {
 }
 
 void PrintMenu() {
+  printf("4 - Wyslij wiadomosc do wszystkich\n");
   printf("3 - Wyslij wiadomosc do uzytkownika\n");
   printf("2 - Wyswietl uzytkownikow\n");
   printf("1 - Rejestracja uzytkownika\n");
@@ -145,6 +149,7 @@ void PrintMenu() {
 // ------------------- GET --------------------------------------------------
 
 void Get() {
+  // printf(".\n");
   GetResponse();
   GetUsersList();
   GetMessage();
@@ -216,26 +221,29 @@ void SendPrintUsers() {
   msgsnd(MyServerID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), 0);
 }
 
-void SendMsgToUser() {
-  int i;
+void SendMsg(int type) {
+  int i, SthSent;
   char c;
   time_t time_now = time(NULL);
   struct tm time_now_local = *localtime(&time_now);
   MSG_CHAT_MESSAGE msg_chat_message;
     msg_chat_message.type = MESSAGE;
-    msg_chat_message.msg_type = PRIVATE;
+    msg_chat_message.msg_type = type;
     strcpy(msg_chat_message.sender, MyUsername);
     msg_chat_message.send_time[0] = (char)(((int)'0') + (time_now_local.tm_hour / 10));
     msg_chat_message.send_time[1] = (char)(((int)'0') + (time_now_local.tm_hour % 10));
     msg_chat_message.send_time[2] = ':';
     msg_chat_message.send_time[3] = (char)(((int)'0') + (time_now_local.tm_min / 10));
     msg_chat_message.send_time[4] = (char)(((int)'0') + (time_now_local.tm_min % 10));
-  printf("Receiver:\n");
-  scanf("%s", msg_chat_message.receiver);
+  if (type == PRIVATE) {
+    printf("Receiver:\n");
+    scanf("%s", msg_chat_message.receiver);
+  }
   printf("Message:\n");
   scanf("%c%[^\n]", &c, msg_chat_message.message);
-  printf("Wysylam message\n");
-  msgsnd(MyServerID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+  printf("Wysylam message %d (private = %d)\n", type, PRIVATE);
+  SthSent = msgsnd(MyServerID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+  printf("Wyslalem %dB\n", SthSent);
 }
 
 // ----------------- OTHER -----------------------------------------------------------
