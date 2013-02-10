@@ -100,9 +100,8 @@ char MyUsername[USER_NAME_MAX_LENGTH];
 int MyServerID;
 int LoggedIn = 0;
 
-// ------------------------------------------------------------------------
-
 // ------------ MENU i main -----------------------------------------------
+
 int main() {
   CreateGetQueue();
   printf("%d\n", GetQueueID);
@@ -145,7 +144,6 @@ void PrintMenu() {
 // ------------------- GET --------------------------------------------------
 
 void Get() {
-  printf("get\n");
   GetResponse();
   GetUsersList();
   GetMessage();
@@ -158,10 +156,9 @@ void GetResponse() {
   SthReceived = msgrcv(GetQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), RESPONSE, IPC_NOWAIT);
   if (SthReceived > 0) {
     printf("Odbieram: %s\n", msg_response.content);
-    if (msg_response.response_type == LOGOUT_SUCCESS) { printf("juhu, logout success\n"); Quit(); }
+    if (msg_response.response_type == LOGOUT_SUCCESS) Quit();
     if (msg_response.response_type == LOGIN_SUCCESS) { LoggedIn = 1; kill(getppid(), 31); }
-  } else {
-    printf(".\n");
+    PrintMenu();
   }
 }
 
@@ -203,13 +200,10 @@ void SendLogin() {
 }
 
 void SendLogout() {
-  int SthSent;
   MSG_LOGIN msg_login;
     msg_login.type = LOGOUT;
-    printf("send logout\n");
     strcpy(msg_login.username, MyUsername);
-  SthSent = msgsnd(MyServerID, &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
-  printf("SthSent: %d\n", SthSent);
+  msgsnd(MyServerID, &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
 }
 
 void SendPrintUsers() {
@@ -243,7 +237,6 @@ void CreateGetQueue() {
 
 void SetLoggedIn() {
   if (LoggedIn) LoggedIn = 0; else LoggedIn = 1;
-  printf("ustawilem logged in na %d\n", LoggedIn);
 }
 
 void Quit() {

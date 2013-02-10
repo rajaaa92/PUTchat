@@ -205,12 +205,8 @@ void GetLogout() {
   int ClientQueueID, SthReceived;
   SthReceived = msgrcv(GetQueueID, &msg_login, sizeof(MSG_LOGIN) - sizeof(long), LOGOUT, IPC_NOWAIT);
   if (SthReceived > 0) {
-    printf("got logout\n");
     ClientQueueID = UserQueueID(msg_login.username);
-    printf("jego queue to %d\n", ClientQueueID);
-    printf("wyslogowuje\n");
     LogoutUser(msg_login.username);
-    printf("wysylam info o wylogowaniu\n");
     SendLoggedOut(ClientQueueID);
   }
 }
@@ -296,14 +292,11 @@ void SendNotLoggedIn(int ipc_num) {
 }
 
 void SendLoggedOut(int ipc_num) {
-  int SthSent;
   MSG_RESPONSE msg_response;
     msg_response.type = RESPONSE;
     msg_response.response_type = LOGOUT_SUCCESS;
     strcpy(msg_response.content, "Wylogowano.\n");
-  SthSent = msgsnd(ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
-  printf("Wyslalem loggedout na %d tyle bledow: %d\n", ipc_num, SthSent);
-
+  msgsnd(ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
 }
 
 void SendMsgSent(int UserQueueID) {
@@ -336,7 +329,6 @@ void Register() {
     exit(0);
   } else {
     PrepareUSSM();
-    printf("przygotowuje tablice userow\n");
     PrepareUsersArray();
     printf("Zarejestrowano serwer @%d.\n", GetQueueID);
   }
@@ -447,14 +439,12 @@ void RegisterUser(char name[], int ipc_num) {
 
 void LogoutUser(char name[]) {
   int i;
-  printf("wylogowuje lokalnie go: %s\n", name);
   for (i = 0; i < MAX_USERS_NUMBER; i++)
     if (!strcmp(Users[i].Username, name)) {
       strcpy(Users[i].Username, "");
       Users[i].GetQueueID = -1;
       break;
     }
-  printf("wylogowuje globalnie go: %s", name);
   P(user_server_SemID);
   for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++)
     if (!strcmp(user_server[i].user_name, name)) {
