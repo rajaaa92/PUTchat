@@ -111,6 +111,21 @@ void PrepareSemaphores();
 void P(int);
 void V(int);
 void GetRequest();
+int PrepareServerIDSM();
+void GetMessage();
+int UserQueueID();
+int UsernameTaken(char*);
+int WhereToLogin();
+void RegisterUser(char*, int);
+void SendLoggedIn(int);
+void SendNotLoggedIn(int);
+void LogoutUser(char*);
+void SendLoggedOut(int);
+void SendUsersList(int);
+void SendMsgToUser(MSG_CHAT_MESSAGE);
+void SendMsgToServer(int, MSG_CHAT_MESSAGE);
+void SendMsgSent(int);
+void SendMsgNotSent(int);
 
 int* server_ids;
 int server_ids_SemID;
@@ -121,13 +136,16 @@ int GetQueueID;
 int MenuPID;
 TUser Users[MAX_USERS_NUMBER];
 
-// ------------------------------------------------------------------------
+// ---------------------------- MENU i main -------------------------------
 
 int main() {
+  // Quit();
   CreateGetQueue();
   PrepareSemaphores();
+  // V(user_server_SemID);
   Register();
-  if (MenuPID = fork()) { while(1) Menu(); }
+  MenuPID = fork();
+  if (MenuPID) { while(1) Menu(); }
   else {
     signal(30, PrintAllUsers);
     while(1) Get();
@@ -139,11 +157,7 @@ void Menu() {
   int Navigate;
   PrintMenu();
   scanf("%d", &Navigate);
-  switcher:
     switch (Navigate) {
-      case 3:
-        PrintAllUsers();
-        break;
       case 2:
         kill(MenuPID, 30); // PrintUsers
         break;
@@ -155,95 +169,158 @@ void Menu() {
     }
 }
 
-void PrepareSemaphores() {
-  server_ids_SemID = semget(SEM_SERVER_IDS, 1, IPC_EXCL | IPC_CREAT | 0777);
-  if (server_ids_SemID < 0) server_ids_SemID = semget(SEM_SERVER_IDS, 1, 0); // sem juz istnieje
-  else semctl(server_ids_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
-  user_server_SemID = semget(SEM_USER_SERVER, 1, IPC_EXCL | IPC_CREAT | 0777);
-  if (user_server_SemID < 0) user_server_SemID = semget(SEM_USER_SERVER, 1, 0); // sem juz istnieje
-  else semctl(user_server_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
-}
-
-void P(int SemID) {
-  struct sembuf sem_buf;
-    sem_buf.sem_num = 0;
-    sem_buf.sem_op = -1;
-    sem_buf.sem_flg = 0;
-  semop(SemID, &sem_buf, 1);
-}
-
-void V(int SemID) {
-  struct sembuf sem_buf;
-    sem_buf.sem_num = 0;
-    sem_buf.sem_op = 1;
-    sem_buf.sem_flg = 0;
-  semop(SemID, &sem_buf, 1);
-}
-
-void Quit() {
-  Unregister();
-  exit(0);
-}
-
-void PrintUsers() {
-  int i;
-  for (i = 0; i < MAX_USERS_NUMBER; i++) {
-    if (strcmp(Users[i].Username, "")) { // strings egals -> return 0
-      printf("User #%d: %s listening at: %d (QueueID).\n", i, Users[i].Username, Users[i].GetQueueID);
-    }
-  }
-}
-
-void PrintAllUsers() {
-  int i;
-  P(user_server_SemID);
-  for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
-    if (strcmp(user_server[i].user_name, "")) { // strings egals -> return 0
-      printf("User #%d: %s @ %d (serwer ID).\n", i, user_server[i].user_name, user_server[i].server_id);
-    }
-  }
-  V(user_server_SemID);
-}
-
 void PrintMenu() {
-  printf("3 - Pokaz wszystkich uzytkownikow\n");
-  printf("2 - Pokaz uzytkownikow na tym serwerze\n");
+  printf("2 - Pokaz uzytkownikow\n");
   printf("1 - Pokaz ID serwerow\n");
   printf("0 - Wyjscie\n");
 }
 
-void Unregister() {
-  int i;
-  int ShMID;
-  kill(MenuPID, 9);
-  P(server_ids_SemID);
-  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == GetQueueID) { server_ids[i] = -1; break; }
-  shmdt(server_ids);
-  V(server_ids_SemID);
-  P(user_server_SemID);
-  shmdt(user_server);
-  V(user_server_SemID);
-  msgctl(GetQueueID, IPC_RMID, NULL);
-  if (AmILastServer) {
-    P(server_ids_SemID);
-    ShMID = shmget(SHM_SERVER_IDS, 0, 0);
-    shmctl(ShMID, IPC_RMID, 0);
-    V(server_ids_SemID);
-    P(user_server_SemID);
-    ShMID = shmget(SHM_USER_SERVER, 0, 0);
-    shmctl(ShMID, IPC_RMID, 0);
-    V(user_server_SemID);
+// ------------------------------ GET ----------------------------------------------
+
+void Get() {
+  // printf(".");
+  GetLogin();
+  GetLogout();
+  GetRequest();
+  GetMessage();
+  sleep(5);
+}
+
+void GetLogin() {
+  MSG_LOGIN msg_login;
+  int SthReceived;
+  SthReceived = msgrcv(GetQueueID, &msg_login, sizeof(MSG_LOGIN) - sizeof(long), LOGIN, IPC_NOWAIT);
+  if (SthReceived > 0) {
+    if ((UsernameTaken(msg_login.username) == 0) && (WhereToLogin() > -1)) {
+      RegisterUser(msg_login.username, msg_login.ipc_num);
+      SendLoggedIn(msg_login.ipc_num);
+    } else {
+      SendNotLoggedIn(msg_login.ipc_num);
+    }
   }
 }
 
-int AmILastServer() {
+void GetLogout() {
+  MSG_LOGIN msg_login;
+  int ClientQueueID, SthReceived;
+  SthReceived = msgrcv(GetQueueID, &msg_login, sizeof(MSG_LOGIN) - sizeof(long), LOGOUT, IPC_NOWAIT);
+  if (SthReceived > 0) {
+    printf("got logout\n");
+    ClientQueueID = UserQueueID(msg_login.username);
+    printf("jego queue to %d\n", ClientQueueID);
+    printf("wyslogowuje\n");
+    LogoutUser(msg_login.username);
+    printf("wysylam info o wylogowaniu\n");
+    SendLoggedOut(ClientQueueID);
+  }
+}
+
+void GetRequest() {
+  MSG_REQUEST msg_request;
+  int SthReceived = msgrcv(GetQueueID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), REQUEST, IPC_NOWAIT);
+  if (SthReceived > 0) {
+    if (msg_request.request_type == USERS_LIST_TYPE) SendUsersList(UserQueueID(msg_request.user_name));
+  }
+}
+
+void GetMessage() {
+  int i, ReceiverExists = 0;
+  MSG_CHAT_MESSAGE msg_chat_message;
+  int SthReceived = msgrcv(GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), MESSAGE, IPC_NOWAIT);
+  if (SthReceived > 0) {
+    printf("rcvd: %d\n", SthReceived);
+    if (msg_chat_message.msg_type == PRIVATE) {
+      P(user_server_SemID);
+      for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
+        if (strcmp(user_server[i].user_name, msg_chat_message.receiver) == 0) {
+          if (user_server[i].server_id == GetQueueID) SendMsgToUser(msg_chat_message);
+          else SendMsgToServer(user_server[i].server_id, msg_chat_message);
+          SendMsgSent(UserQueueID(msg_chat_message.sender));
+          ReceiverExists = 1;
+        }
+      }
+      V(user_server_SemID);
+      if (!ReceiverExists) SendMsgNotSent(UserQueueID(msg_chat_message.sender));
+    }
+  }
+}
+
+// --------------------------------- SEND ----------------------------------------------------
+
+void SendUsersList(int UserQueueID) {
   int i;
-  int NumberOfServers = 0;
-  P(server_ids_SemID);
-  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == -1) NumberOfServers++;
-  V(server_ids_SemID);
-  if (NumberOfServers == 1) return 1;
-  else return 0;
+  MSG_USERS_LIST msg_users_list;
+    msg_users_list.type = USERS_LIST_TYPE;
+    for (i = 0; i < (MAX_USERS_NUMBER * MAX_SERVERS_NUMBER); i++)
+      strcpy(msg_users_list.users[i], "");
+    P(user_server_SemID);
+    for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
+      if (user_server[i].server_id != -1) {
+        strcpy(msg_users_list.users[i], user_server[i].user_name);
+      }
+    }
+    V(user_server_SemID);
+    msgsnd(UserQueueID, &msg_users_list, sizeof(MSG_USERS_LIST) - sizeof(long), IPC_NOWAIT);
+}
+
+void SendMsgToUser(MSG_CHAT_MESSAGE msg_chat_message) {
+  int i;
+  for (i = 0; i < MAX_USERS_NUMBER; i++) {
+    if (strcmp(Users[i].Username, msg_chat_message.receiver) == 0) {
+      printf("wysylam wiadomosc\n");
+      msgsnd(Users[i].GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+    }
+  }
+}
+
+void SendMsgToServer(int ServerID, MSG_CHAT_MESSAGE msg_chat_message) {
+  msgsnd(ServerID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+}
+
+// ---- responses:
+
+void SendLoggedIn(int ipc_num) {
+  MSG_RESPONSE msg_response;
+    msg_response.type = RESPONSE;
+    msg_response.response_type = LOGIN_SUCCESS;
+    strcpy(msg_response.content, "Zalogowano.\n");
+  msgsnd(ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
+}
+
+void SendNotLoggedIn(int ipc_num) {
+  MSG_RESPONSE msg_response;
+    msg_response.type = RESPONSE;
+    msg_response.response_type = LOGIN_FAILED;
+    strcpy(msg_response.content, "Username taken or no space on server.\n");
+  msgsnd(ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
+}
+
+void SendLoggedOut(int ipc_num) {
+  MSG_RESPONSE msg_response;
+    msg_response.type = RESPONSE;
+    msg_response.response_type = LOGOUT_SUCCESS;
+    strcpy(msg_response.content, "Wylogowano.\n");
+  msgsnd(ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
+}
+
+void SendMsgSent(int UserQueueID) {
+  MSG_RESPONSE msg_response;
+    msg_response.type = RESPONSE;
+    msg_response.response_type = MSG_SEND;
+  msgsnd(UserQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), IPC_NOWAIT);
+}
+
+void SendMsgNotSent(int UserQueueID) {
+  MSG_RESPONSE msg_response;
+    msg_response.type = RESPONSE;
+    msg_response.response_type = MSG_NOT_SEND;
+  msgsnd(UserQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), IPC_NOWAIT);
+}
+
+// ------------------------- BEFORE ----------------------------------
+
+void CreateGetQueue() {
+  GetQueueID = msgget(IPC_PRIVATE, IPC_CREAT | 0777);
 }
 
 void Register() {
@@ -256,8 +333,9 @@ void Register() {
     exit(0);
   } else {
     PrepareUSSM();
+    printf("przygotowuje tablice userow\n");
     PrepareUsersArray();
-    printf("Zarejestrowano serwer.\n");
+    printf("Zarejestrowano serwer @%d.\n", GetQueueID);
   }
 }
 
@@ -284,7 +362,7 @@ int PrepareServerIDSM() {
 }
 
 void PrepareUSSM() {
-  int i, j;
+  int i;
   P(user_server_SemID);
   int ShMID = shmget(SHM_USER_SERVER, 14 * MAX_SERVERS_NUMBER * MAX_USERS_NUMBER, IPC_EXCL | IPC_CREAT | 0777);
   if (ShMID < 0) { // tablica już istnieje w pamięci
@@ -293,7 +371,7 @@ void PrepareUSSM() {
   } else { // tablica zostanie utworzona
     user_server = (USER_SERVER*) shmat(ShMID, NULL, 0);
     for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
-      for(j = 0; j < USER_NAME_MAX_LENGTH; j++) user_server[i].user_name[j] = '\0';
+      strcpy(user_server[i].user_name, "");
       user_server[i].server_id = -1;
     }
   }
@@ -301,133 +379,106 @@ void PrepareUSSM() {
 }
 
 void PrepareUsersArray() {
-  int i, j;
-  for (i = 0; i < MAX_USERS_NUMBER; i++) {
-    for(j = 0; j < USER_NAME_MAX_LENGTH; j++) Users[i].Username[j] = '\0';
-  }
-}
-
-void Get() {
-  // printf(".");
-  GetLogin();
-  GetLogout();
-  GetRequest();
-  // sleep(5);
-}
-
-void GetRequest() {
-  MSG_REQUEST msg_request;
-  MSG_USERS_LIST msg_users_list;
-  int i, j = 0, k = 0, msg_size = 0;
-  int ClientQueueID;
-  int SthReceived, SthSent;
-  SthReceived = msgrcv(GetQueueID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), REQUEST, IPC_NOWAIT);
-  if (SthReceived > 0) {
-    if (msg_request.request_type == USERS_LIST_TYPE) {
-      msg_users_list.type = USERS_LIST_TYPE;
-      for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
-        strcpy(msg_users_list.users[i], "");
-      }
-      P(user_server_SemID);
-      j = 0;
-      for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
-        if (user_server[i].server_id != -1) {
-          // k = 0;
-          // while(user_server[i].user_name[k] != '\0') {
-          //   msg_users_list.users[j][k] = user_server[i].user_name[k];
-          //   k++;
-          // }
-          strcpy(msg_users_list.users[j], user_server[i].user_name);
-          msg_size += (strlen(msg_users_list.users[j]) + 1);
-          j++;
-        }
-      }
-      V(user_server_SemID);
-      for(i = 0; i < MAX_USERS_NUMBER; i++) {
-        if(strcmp(msg_request.user_name, Users[i].Username) == 0) {
-          SthSent = msgsnd(Users[i].GetQueueID, &msg_users_list, sizeof(MSG_USERS_LIST) - sizeof(long), 0);
-          if (SthSent == 0) printf("%d, wyslalem mu na %d typ %d\n", SthSent, Users[i].GetQueueID, USERS_LIST_TYPE);
-          else { printf("%d\n", errno); }
-          printf("oto co poszlo lub nie poszlo:\n");
-          for(i = 0; i < 15 * 20; i++) {
-            if (strcmp(msg_users_list.users[i], "") != 0) printf("%s\n", msg_users_list.users[i]);
-          }
-
-        }
-      }
-    }
-  }
-}
-
-void GetLogout() {
-  MSG_LOGIN msg_login;
-  MSG_RESPONSE msg_response;
-  int i, j;
-  int ClientQueueID;
-  int SthReceived, SthSent;
-  SthReceived = msgrcv(GetQueueID, &msg_login, sizeof(MSG_LOGIN) - sizeof(long), LOGOUT, IPC_NOWAIT);
-  if (SthReceived > 0) {
-    for (i = 0; i < MAX_USERS_NUMBER; i++) {
-      if (!strcmp(Users[i].Username, msg_login.username)) {
-        for(j = 0; j < USER_NAME_MAX_LENGTH; j++) Users[i].Username[j] = '\0';
-        ClientQueueID = Users[i].GetQueueID;
-        Users[i].GetQueueID = -1;
-        break;
-      }
-    }
-    P(user_server_SemID);
-    for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
-      if (!strcmp(user_server[i].user_name, msg_login.username)) {
-        for(j = 0; j < USER_NAME_MAX_LENGTH; j++) user_server[i].user_name[j] = '\0';
-        user_server[i].server_id = -1;
-      }
-    }
-    V(user_server_SemID);
-    msg_response.type = RESPONSE;
-      msg_response.response_type = LOGOUT_SUCCESS;
-      strcpy(msg_response.content, "Wylogowano.\n");
-    SthSent = msgsnd(ClientQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
-  }
-}
-
-void GetLogin() {
-  MSG_LOGIN msg_login;
-  MSG_RESPONSE msg_response;
   int i;
-  int WhereToLogin = -1;
-  int Taken = 0;
-  int SthReceived, SthSent;
-  SthReceived = msgrcv(GetQueueID, &msg_login, sizeof(MSG_LOGIN) - sizeof(long), LOGIN, IPC_NOWAIT);
-  if (SthReceived > 0) {
-    for (i = 0; i < MAX_USERS_NUMBER; i++)
-      if (!strcmp(Users[i].Username, "")) { WhereToLogin = i; break; } // returns 0 if equal
+  for (i = 0; i < MAX_USERS_NUMBER; i++) strcpy(Users[i].Username, "");
+}
+
+void PrepareSemaphores() {
+  server_ids_SemID = semget(SEM_SERVER_IDS, 1, IPC_EXCL | IPC_CREAT | 0777);
+  if (server_ids_SemID < 0) server_ids_SemID = semget(SEM_SERVER_IDS, 1, 0); // sem juz istnieje
+  else semctl(server_ids_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+  user_server_SemID = semget(SEM_USER_SERVER, 1, IPC_EXCL | IPC_CREAT | 0777);
+  if (user_server_SemID < 0) user_server_SemID = semget(SEM_USER_SERVER, 1, 0); // sem juz istnieje
+  else semctl(user_server_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+}
+
+// ------------------------- AFTER -----------------------------------
+
+void Quit() {
+  Unregister();
+  exit(0);
+}
+
+void Unregister() {
+  int i;
+  int ShMID;
+  kill(MenuPID, 9);
+  P(server_ids_SemID);
+  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == GetQueueID) { server_ids[i] = -1; break; }
+  shmdt(server_ids);
+  V(server_ids_SemID);
+  P(user_server_SemID);
+  shmdt(user_server);
+  V(user_server_SemID);
+  msgctl(GetQueueID, IPC_RMID, NULL);
+  if (AmILastServer) {
+    P(server_ids_SemID);
+    ShMID = shmget(SHM_SERVER_IDS, 0, 0);
+    shmctl(ShMID, IPC_RMID, 0);
+    V(server_ids_SemID);
     P(user_server_SemID);
-    for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
-      if (!strcmp(user_server[i].user_name, msg_login.username)) { Taken = 1; break; }
-    }
-    if ((Taken == 0) && (WhereToLogin > -1)) {
-      for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
-        if (!strcmp(user_server[i].user_name, "")) { // 0 if equal
-          Users[WhereToLogin].GetQueueID = msg_login.ipc_num;
-            strcpy(Users[WhereToLogin].Username, msg_login.username);
-          user_server[i].server_id = GetQueueID;
-            strcpy(user_server[i].user_name, msg_login.username);
-          V(user_server_SemID);
-          msg_response.type = RESPONSE;
-            msg_response.response_type = LOGIN_SUCCESS;
-            strcpy(msg_response.content, "Zalogowano.");
-          SthSent = msgsnd(msg_login.ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
-          break;
-        }
-      }
-    } else {
+    ShMID = shmget(SHM_USER_SERVER, 0, 0);
+    shmctl(ShMID, IPC_RMID, 0);
+    V(user_server_SemID);
+    semctl(user_server_SemID, IPC_RMID, NULL);
+    semctl(server_ids_SemID, IPC_RMID, NULL);
+  }
+}
+
+// ------------------------- MAINTAIN --------------------------------
+
+void RegisterUser(char name[], int ipc_num) {
+  int i;
+  P(user_server_SemID);
+  for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
+    if (!strcmp(user_server[i].user_name, "")) { // 0 if equal
+      user_server[i].server_id = GetQueueID;
+        strcpy(user_server[i].user_name, name);
       V(user_server_SemID);
-      msg_response.type = RESPONSE;
-        msg_response.response_type = LOGIN_FAILED;
-        strcpy(msg_response.content, "Username taken or no space on server.\n");
-      SthSent = msgsnd(msg_login.ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
+      Users[WhereToLogin()].GetQueueID = ipc_num;
+        strcpy(Users[WhereToLogin()].Username, name);
+      break;
     }
   }
+}
+
+void LogoutUser(char name[]) {
+  int i;
+  printf("wylogowuje lokalnie go: %s\n", name);
+  for (i = 0; i < MAX_USERS_NUMBER; i++)
+    if (!strcmp(Users[i].Username, name)) {
+      strcpy(Users[i].Username, "");
+      Users[i].GetQueueID = -1;
+      break;
+    }
+  printf("wylogowuje globalnie go: %s", name);
+  P(user_server_SemID);
+  for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++)
+    if (!strcmp(user_server[i].user_name, name)) {
+      strcpy(user_server[i].user_name, "");
+      user_server[i].server_id = -1;
+    }
+  V(user_server_SemID);
+}
+
+void PrintUsers() {
+  int i;
+  for (i = 0; i < MAX_USERS_NUMBER; i++) {
+    if (strcmp(Users[i].Username, "") == 0) { // strings egals -> return 0
+      printf("User #%d: %s listening at: %d (QueueID).\n", i, Users[i].Username, Users[i].GetQueueID);
+    }
+  }
+}
+
+void PrintAllUsers() {
+  int i;
+  P(user_server_SemID);
+  for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
+    if (user_server[i].server_id != -1) {
+      printf("User #%d: %s @ %d (serwer ID).\n", i, user_server[i].user_name, user_server[i].server_id);
+    }
+  }
+  V(user_server_SemID);
 }
 
 void PrintServers() {
@@ -437,6 +488,50 @@ void PrintServers() {
     V(server_ids_SemID);
 }
 
-void CreateGetQueue() {
-  GetQueueID = msgget(IPC_PRIVATE, IPC_CREAT | 0777);
+// ------------------------- HELPERS -------------------------------------
+
+void P(int SemID) {
+  struct sembuf sem_buf;
+    sem_buf.sem_num = 0;
+    sem_buf.sem_op = -1;
+    sem_buf.sem_flg = 0;
+  semop(SemID, &sem_buf, 1);
+}
+
+void V(int SemID) {
+  struct sembuf sem_buf;
+    sem_buf.sem_num = 0;
+    sem_buf.sem_op = 1;
+    sem_buf.sem_flg = 0;
+  semop(SemID, &sem_buf, 1);
+}
+
+int AmILastServer() {
+  int i;
+  int NumberOfServers = 0;
+  P(server_ids_SemID);
+  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) NumberOfServers++;
+  V(server_ids_SemID);
+  if (NumberOfServers == 1) return 1;
+  else return 0;
+}
+
+int UserQueueID(char name[]) {
+  int i;
+  for(i = 0; i < MAX_USERS_NUMBER; i++) if(!strcmp(name, Users[i].Username)) return Users[i].GetQueueID; // if equal
+  return -1;
+}
+
+int WhereToLogin() {
+  int i, WhereToLogin = -1;
+  for (i = 0; i < MAX_USERS_NUMBER; i++)
+    if (!strcmp(Users[i].Username, "")) { WhereToLogin = i; break; } // returns 0 if equal
+  return WhereToLogin;
+}
+
+int UsernameTaken(char name[]) {
+  int i;
+  for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++)
+    if (!strcmp(user_server[i].user_name, name)) return 1;
+  return 0;
 }

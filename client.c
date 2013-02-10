@@ -86,53 +86,33 @@ void Get();
 void GetResponse();
 void PrintMenu();
 void CreateGetQueue();
-void Register();
-void Logout();
-void PrepareSemaphores();
-void P(int);
-void V(int);
+void SendLogin();
+void SendLogout();
 void SendPrintUsers();
 void GetUsersList();
+void SendMsgToUser();
+void SetLoggedIn();
+void GetMessage();
 
-int* server_ids;
 int MenuPID;
 int GetQueueID;
-int server_ids_SemID;
 char MyUsername[USER_NAME_MAX_LENGTH];
-int MyServerNr;
-int Registered = 0;
+int MyServerID;
+int LoggedIn = 0;
 
 // ------------------------------------------------------------------------
 
+// ------------ MENU i main -----------------------------------------------
 int main() {
   CreateGetQueue();
-  printf("moje getqueue id: %d\n", GetQueueID);
-  printf("msg type to: %d", USERS_LIST_TYPE);
-  if (MenuPID = fork()) { while(1) Menu(); }
+  printf("%d\n", GetQueueID);
+  MenuPID = fork();
+  if (MenuPID) {
+    signal(31, SetLoggedIn);
+    while(1) Menu();
+  }
   else { while(1) Get(); }
   return 0;
-}
-
-void PrepareSemaphores() {
-  server_ids_SemID = semget(SEM_SERVER_IDS, 1, IPC_EXCL | IPC_CREAT | 0777);
-  if (server_ids_SemID < 0) server_ids_SemID = semget(SEM_SERVER_IDS, 1, 0); // sem juz istnieje
-  else semctl(server_ids_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
-}
-
-void P(int SemID) {
-  struct sembuf sem_buf;
-    sem_buf.sem_num = 0;
-    sem_buf.sem_op = -1;
-    sem_buf.sem_flg = 0;
-  semop(SemID, &sem_buf, 1);
-}
-
-void V(int SemID) {
-  struct sembuf sem_buf;
-    sem_buf.sem_num = 0;
-    sem_buf.sem_op = 1;
-    sem_buf.sem_flg = 0;
-  semop(SemID, &sem_buf, 1);
 }
 
 void Menu() {
@@ -140,53 +120,46 @@ void Menu() {
   PrintMenu();
   scanf("%d", &Navigate);
   switch (Navigate) {
+    case 3:
+      SendMsgToUser();
+      break;
     case 2:
       SendPrintUsers();
       break;
     case 1:
-      Register();
+      SendLogin();
       break;
     case 0:
-      if (Registered) Logout(); else Quit();
+      if (LoggedIn) SendLogout(); else Quit();
+      break;
   }
 }
 
 void PrintMenu() {
+  printf("3 - Wyslij wiadomosc do uzytkownika\n");
   printf("2 - Wyswietl uzytkownikow\n");
   printf("1 - Rejestracja uzytkownika\n");
   printf("0 - Wyjscie\n");
 }
 
-void SendPrintUsers() {
-  MSG_REQUEST msg_request;
-    msg_request.type = REQUEST;
-    msg_request.request_type = USERS_LIST_TYPE;
-    printf("kopiuje msg_request.user_name << MyUserame --- %s << %s\n", msg_request.user_name, MyUsername);
-    strcpy(msg_request.user_name, MyUsername);
-    printf("teraz msgreq ma username: %s\n", msg_request.user_name);
-  P(server_ids_SemID);
-  printf("wysylam zaraz zapytanie o liste ludzi\n");
-  msgsnd(server_ids[MyServerNr], &msg_request, sizeof(MSG_REQUEST) - sizeof(long), 0);
-  printf("wyslalem zapytanie o liste ludzi\n");
-  V(server_ids_SemID);
-}
+// ------------------- GET --------------------------------------------------
 
 void Get() {
   // printf(".");
   GetResponse();
   GetUsersList();
+  GetMessage();
   sleep(5);
 }
 
 void GetResponse() {
   MSG_RESPONSE msg_response;
-  int i;
   int SthReceived;
   SthReceived = msgrcv(GetQueueID, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), RESPONSE, IPC_NOWAIT);
   if (SthReceived > 0) {
     printf("Odbieram: %s\n", msg_response.content);
-    if (msg_response.response_type == LOGOUT_SUCCESS) Quit();
-    if (msg_response.response_type == LOGIN_SUCCESS) Registered = 1;
+    if (msg_response.response_type == LOGOUT_SUCCESS) { printf("juhu, logout success\n"); Quit(); }
+    if (msg_response.response_type == LOGIN_SUCCESS) { LoggedIn = 1; kill(MenuPID, 31); }
   }
 }
 
@@ -199,83 +172,82 @@ void GetUsersList() {
     printf("All users:\n");
     for(i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++)
       if (strcmp(msg_users_list.users[i], "") != 0) printf("%s\n", msg_users_list.users[i]);
-  } else { printf(".\n"); }
+  }
 }
 
-void Logout() {
+void GetMessage() {
+  MSG_CHAT_MESSAGE msg_chat_message;
+  int SthReceived = msgrcv(GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), MESSAGE, IPC_NOWAIT);
+  if (SthReceived > 0) {
+    printf("At %s\n", msg_chat_message.send_time);
+    printf("%s writes:\n", msg_chat_message.sender);
+    printf("%s\n", msg_chat_message.message);
+  }
+}
+
+// ------------------------------ SEND -----------------------------------------
+
+void SendLogin() {
+  strcpy(MyUsername, "");
+  printf("Wpisz nazwe uzytkownika.\n");
+  scanf("%s", MyUsername);
+  printf("Wpisz ID serwera, do ktorego chcesz sie zalogowac:\n");
+  scanf("%d", &MyServerID);
+  MSG_LOGIN msg_login;
+    msg_login.type = LOGIN;
+    strcpy(msg_login.username, MyUsername);
+    msg_login.ipc_num = GetQueueID;
+  msgsnd(MyServerID, &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
+}
+
+void SendLogout() {
+  int SthSent;
   MSG_LOGIN msg_login;
     msg_login.type = LOGOUT;
+    printf("send logout\n");
     strcpy(msg_login.username, MyUsername);
-  P(server_ids_SemID);
-  msgsnd(server_ids[MyServerNr], &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
-  V(server_ids_SemID);
+  SthSent = msgsnd(MyServerID, &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
+  printf("SthSent: %d\n", SthSent);
 }
 
-void Quit() {
-  msgctl(GetQueueID, IPC_RMID, NULL);
-  kill(MenuPID, 9);
-  P(server_ids_SemID);
-  shmdt(server_ids);
-  V(server_ids_SemID);
-  exit(0);
+void SendPrintUsers() {
+  MSG_REQUEST msg_request;
+    msg_request.type = REQUEST;
+    msg_request.request_type = USERS_LIST_TYPE;
+    strcpy(msg_request.user_name, MyUsername);
+  msgsnd(MyServerID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), 0);
 }
+
+void SendMsgToUser() {
+  MSG_CHAT_MESSAGE msg_chat_message;
+    msg_chat_message.type = MESSAGE;
+    msg_chat_message.msg_type = PRIVATE;
+    strcpy(msg_chat_message.sender, MyUsername);
+    printf("ustawiam sendera jako %s", MyUsername);
+    strcpy(msg_chat_message.send_time, "kiedys");
+  printf("Receiver:\n");
+  scanf("%s", msg_chat_message.receiver);
+  printf("Message:\n");
+  scanf("%s", msg_chat_message.message);
+  printf("wysylam wiadomosc\n");
+  msgsnd(MyServerID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+}
+
+// ----------------- OTHER -----------------------------------------------------------
 
 void CreateGetQueue() {
   GetQueueID = msgget(IPC_PRIVATE, IPC_CREAT | 0777);
 }
 
-int PrintServers() {
-  int i, ServersThere = 0;
-  if (PrepareServerIDSM()) {
-    printf("Dostępne serwery:\n");
-    P(server_ids_SemID);
-    for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) printf("Serwer #%d: %d\n", i, server_ids[i]);
-    V(server_ids_SemID);
-    ServersThere = 1;
-  } else printf("Brak serwerow. Nie mozesz sie zalogowac.\n");
-  return ServersThere;
+void SetLoggedIn() {
+  if (LoggedIn) LoggedIn = 0; else LoggedIn = 1;
+  printf("ustawilem logged in na %d\n", LoggedIn);
 }
 
-int ServersOnline() {
-  int i;
-  P(server_ids_SemID);
-  for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) { V(server_ids_SemID); return 1; }
-  V(server_ids_SemID);
-  return 0;
+void Quit() {
+  msgctl(GetQueueID, IPC_RMID, NULL);
+  kill(MenuPID, 9);
+  exit(0);
 }
 
-// Rejestracja użytkownika na serwerze
-void Register() {
-  char Username[USER_NAME_MAX_LENGTH];
-  int ServerID, i;
-  if (PrintServers()) { // sa serwery
-    for(i = 0; i < USER_NAME_MAX_LENGTH; i++) Username[i] = '\0';
-    printf("Wpisz nazwe uzytkownika.\n");
-    scanf("%s", Username);
-    printf("Wpisz numer serwera, do ktorego chcesz sie zalogowac:\n");
-    scanf("%d", &ServerID);
-    strcpy(MyUsername, Username);
-    MyServerNr = ServerID;
-    MSG_LOGIN msg_login;
-      msg_login.type = LOGIN;
-      strcpy(msg_login.username, Username);
-      msg_login.ipc_num = GetQueueID;
-    P(server_ids_SemID);
-    msgsnd(server_ids[ServerID], &msg_login, sizeof(MSG_LOGIN) - sizeof(long), 0);
-    V(server_ids_SemID);
-  }
-}
 
-int PrepareServerIDSM() {
-  int i;
-  P(server_ids_SemID);
-  int ShMID = shmget(SHM_SERVER_IDS, 0, 0);
-  if (ShMID < 0) { // tablica nie istnieje
-    V(server_ids_SemID);
-    return 0;
-  } else { // tablica jest
-    server_ids = (int*) shmat(ShMID, NULL, 0);
-    V(server_ids_SemID);
-    return ShMID;
-  }
-}
