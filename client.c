@@ -116,7 +116,8 @@ int main() {
   MenuPID = fork();
   if (MenuPID) {
     signal(31, SetLoggedIn);
-    while(1) Menu();
+    signal(10, SendHeartBeat);
+    while(1) { Menu(); }
   }
   else { while(1) Get(); }
   return 0;
@@ -173,7 +174,7 @@ void Get() {
   GetUsersList();
   GetRoomsList();
   GetMessage();
-  // sleep(5);
+  sleep(5);
 }
 
 void GetResponse() {
@@ -185,7 +186,7 @@ void GetResponse() {
       printf("SERVER: %s\n", msg_response.content);
     if (msg_response.response_type == LOGOUT_SUCCESS) Quit();
     if (msg_response.response_type == LOGIN_SUCCESS) { LoggedIn = 1; kill(getppid(), 31); }
-    if (msg_response.response_type == PING) SendHeartBeat();
+    if (msg_response.response_type == PING) { kill(getppid(), 10); }
     if (strcmp(msg_response.content, "ping") != 0) PrintMenu();
   }
 }
@@ -266,6 +267,7 @@ void SendPrintRooms() {
 
 void SendMsg(int type) {
   char c;
+  int SthSent;
   time_t time_now = time(NULL);
   struct tm time_now_local = *localtime(&time_now);
   MSG_CHAT_MESSAGE msg_chat_message;
@@ -284,7 +286,8 @@ void SendMsg(int type) {
   }
   printf("Message:\n");
   scanf("%c%[^\n]", &c, msg_chat_message.message);
-  msgsnd(MyServerID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+  SthSent = msgsnd(MyServerID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+  printf("SthSend = %d, na %d\n", SthSent, MyServerID);
 }
 
 void SendHeartBeat() {
@@ -294,8 +297,6 @@ void SendHeartBeat() {
     msg_request.request_type = PONG;
     strcpy(msg_request.user_name, MyUsername);
   SthSent = msgsnd(MyServerID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), 0);
-  printf("wysylam hertbita %d\n", SthSent);
-  printf("errno: %d", errno);
 }
 
 void SendEnterRoom() {
@@ -308,7 +309,7 @@ void SendEnterRoom() {
     scanf("%s", msg_room.room_name);
     strcpy(Room, msg_room.room_name);
   SthSent = msgsnd(MyServerID, &msg_room, sizeof(MSG_ROOM) - sizeof(long), 0);
-  printf("SthSent = %d, Wyslalem requesta o room\n", SthSent);
+  printf("SthSent = %d, Wyslalem requesta o room na %d\n", SthSent, MyServerID);
 }
 
 void SendQuitRoom() {
@@ -329,7 +330,7 @@ void CreateGetQueue() {
 }
 
 void SetLoggedIn() {
-  if (LoggedIn) LoggedIn = 0; else LoggedIn = 1;
+  if (LoggedIn) LoggedIn = 0; else { LoggedIn = 1; }
 }
 
 void Quit() {

@@ -125,7 +125,7 @@ void SendNotLoggedIn(int);
 void LogoutUser(char*);
 void SendLoggedOut(int);
 void SendUsersList(int);
-void SendMsgToUser(MSG_CHAT_MESSAGE);
+void SendMsgToUser(MSG_CHAT_MESSAGE, char*);
 void SendMsgToServer(int, MSG_CHAT_MESSAGE);
 void SendMsgSent(int);
 void SendMsgNotSent(int);
@@ -142,6 +142,7 @@ void SendRoomsList(int);
 void SendRoomLeft(int);
 void LeaveRoom(MSG_ROOM);
 void BeABadServer();
+void PrintRooms();
 
 int* server_ids;
 int server_ids_SemID;
@@ -154,6 +155,7 @@ int GetQueueID;
 int MenuPID;
 TUser Users[MAX_USERS_NUMBER];
 int Checking = 0;
+int SendingToRoom = 0;
 int Time = 0;
 
 // ---------------------------- MENU i main -------------------------------
@@ -166,6 +168,7 @@ int main() {
   MenuPID = fork();
   if (MenuPID) { while(1) Menu(); }
   else {
+    signal(12, PrintRooms);
     signal(30, PrintAllUsers);
     while(1) {
       Get();
@@ -179,6 +182,9 @@ void Menu() {
   PrintMenu();
   scanf("%d", &Navigate);
     switch (Navigate) {
+      case 3:
+        kill(MenuPID, 12);
+        break;
       case 2:
         kill(MenuPID, 30); // PrintUsers
         break;
@@ -191,6 +197,7 @@ void Menu() {
 }
 
 void PrintMenu() {
+  printf("3 - Pokaz pokoje\n");
   printf("2 - Pokaz uzytkownikow\n");
   printf("1 - Pokaz ID serwerow\n");
   printf("0 - Wyjscie\n");
@@ -207,22 +214,7 @@ void Get() {
   GetCheckServer(0);
   GetRoom();
   BeABadServer();
-  // sleep(5);
-}
-
-void BeABadServer() {
-  if (Time % 2000000 == 0) {
-    printf("wysylam hertbity\n");
-    SendHeartBeat();
-  }
-  if (Time % 10000000 == 0) {
-    printf("usuwam dedow\n");
-    RemoveDeadClients();
-    printf("clear alive\n");
-    ClearAlive();
-    Time = 0;
-  }
-  Time++;
+  sleep(5);
 }
 
 void GetLogin() {
@@ -255,7 +247,7 @@ void GetRequest() {
   int SthReceived = msgrcv(GetQueueID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), REQUEST, IPC_NOWAIT);
   if (SthReceived > 0) {
     if (msg_request.request_type == USERS_LIST_TYPE) SendUsersList(UserQueueID(msg_request.user_name));
-    if (msg_request.request_type == PONG) { printf("przyszedl pong\n"); UpdateAlive(msg_request.user_name); }
+    if (msg_request.request_type == PONG) { UpdateAlive(msg_request.user_name); }
     if (msg_request.request_type == ROOMS_LIST_TYPE) { SendRoomsList(UserQueueID(msg_request.user_name)); }
   }
 }
@@ -263,7 +255,7 @@ void GetRequest() {
 void UpdateAlive(char username[]) {
   int i;
   for (i = 0; i < MAX_USERS_NUMBER; i++) {
-    if (strcmp(Users[i].Username, username) == 0) {Users[i].Alive = 1; printf("user alive: %s\n", Users[i].Username);}
+    if (strcmp(Users[i].Username, username) == 0) { Users[i].Alive = 1; }
   }
 }
 
@@ -272,12 +264,14 @@ void GetMessage() {
   MSG_CHAT_MESSAGE msg_chat_message;
   int SthReceived = msgrcv(GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), MESSAGE, IPC_NOWAIT);
   if (SthReceived > 0) {
+    printf("mam widomosc\n");
     if (msg_chat_message.msg_type == PRIVATE) {
       P(user_server_SemID);
+      printf("przelatuje ludzi\n");
       for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
         if (strcmp(user_server[i].user_name, msg_chat_message.receiver) == 0) {
           if (user_server[i].server_id == GetQueueID) {
-            SendMsgToUser(msg_chat_message);
+            SendMsgToUser(msg_chat_message, "");
             Sent = 1;
           } else {
             Checking = 1;
@@ -290,23 +284,32 @@ void GetMessage() {
         }
       }
       V(user_server_SemID);
-      P(room_server_SemID);
-      for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) { // wysylka do pok
-        if (strcmp(room_server[i].room_name, msg_chat_message.receiver) == 0) {
-          if (room_server[i].server_id == GetQueueID) {
-            SendMsgToUser(msg_chat_message);
-            Sent = 1;
-          } else {
-            Checking = 1;
-            SendCheckServer(room_server[i].server_id);
-            if (GetCheckServer(1)) {
-              SendMsgToServer(room_server[i].server_id, msg_chat_message);
+      if (!Sent) {
+        P(room_server_SemID);
+        SendingToRoom = 1;
+        printf("przelatuje pokoje\n");
+        for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) { // wysylka do pok
+          if (strcmp(room_server[i].room_name, msg_chat_message.receiver) == 0) {
+            printf("znalazlem pokoj\n");
+            if (room_server[i].server_id == GetQueueID) {
+              printf("pokoj jest u mnie\n");
+              SendMsgToUser(msg_chat_message, room_server[i].room_name);
               Sent = 1;
+            } else {
+              if (SenderAtFoundServer(msg_chat_message.sender, room_server[i].server_id) == 0) {
+                Checking = 1;
+                SendCheckServer(room_server[i].server_id);
+                if (GetCheckServer(1)) {
+                  SendMsgToServer(room_server[i].server_id, msg_chat_message); // jesli sender.serwer room.serwero/serwerid sa rozne
+                  Sent = 1;
+                }
+              }
             }
           }
         }
+        SendingToRoom = 0;
+        V(room_server_SemID);
       }
-      V(room_server_SemID);
     } else { // if public
       P(user_server_SemID);
       for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
@@ -314,7 +317,7 @@ void GetMessage() {
           strcpy(msg_chat_message.receiver, user_server[i].user_name);
           msg_chat_message.msg_type = PRIVATE;
           if (user_server[i].server_id == GetQueueID) {
-            SendMsgToUser(msg_chat_message);
+            SendMsgToUser(msg_chat_message, "");
             Sent = 1;
           } else {
             Checking = 1;
@@ -413,11 +416,19 @@ void SendRoomsList(int UserQueueID) {
     SthSent = msgsnd(UserQueueID, &msg_rooms_list, sizeof(MSG_USERS_LIST) - sizeof(long), IPC_NOWAIT);
 }
 
-void SendMsgToUser(MSG_CHAT_MESSAGE msg_chat_message) {
+void SendMsgToUser(MSG_CHAT_MESSAGE msg_chat_message, char Room[]) {
   int i;
-  for (i = 0; i < MAX_USERS_NUMBER; i++) {
-    if (strcmp(Users[i].Username, msg_chat_message.receiver) == 0) {
-      msgsnd(Users[i].GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+  if (strcmp(Room, "") == 0) { // do usera
+    for (i = 0; i < MAX_USERS_NUMBER; i++) {
+      if (strcmp(Users[i].Username, msg_chat_message.receiver) == 0) {
+        msgsnd(Users[i].GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+      }
+    }
+  } else { // do rooma ludzi ze swojego serwera
+    for (i = 0; i < MAX_USERS_NUMBER; i++) {
+      if ((strcmp(Users[i].Room, msg_chat_message.receiver) == 0) && (strcmp(Users[i].Username, msg_chat_message.sender) != 0)) {
+        msgsnd(Users[i].GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+      }
     }
   }
 }
@@ -733,6 +744,17 @@ void PrintAllUsers() {
   V(user_server_SemID);
 }
 
+void PrintRooms() {
+  int i;
+  P(room_server_SemID);
+  for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
+    if (room_server[i].server_id != -1) {
+      printf("Room: %s @ %d (serwer ID).\n", room_server[i].room_name, user_server[i].server_id);
+    }
+  }
+  V(room_server_SemID);
+}
+
 void PrintServers() {
   int i;
   P(server_ids_SemID);
@@ -743,7 +765,7 @@ void PrintServers() {
 void RemoveDeadClients() {
   int i;
   for (i = 0; i < MAX_USERS_NUMBER; i++) {
-    if (Users[i].Alive == 0) { printf("useer ded: %s\n", Users[i].Username); SendLoggedOut(Users[i].GetQueueID); LogoutUser(Users[i].Username); }
+    if (Users[i].Alive == 0) { SendLoggedOut(Users[i].GetQueueID); LogoutUser(Users[i].Username); }
   }
 }
 
@@ -801,7 +823,17 @@ void LeaveRoom(MSG_ROOM msg_room) {
   }
 }
 
-
+void BeABadServer() {
+  if (Time % 2000000 == 0) {
+    SendHeartBeat();
+  }
+  if (Time % 10000000 == 0) {
+    RemoveDeadClients();
+    ClearAlive();
+    Time = 0;
+  }
+  Time++;
+}
 
 
 // ------------------------- HELPERS -------------------------------------
@@ -836,6 +868,19 @@ int UserQueueID(char name[]) {
   int i;
   for(i = 0; i < MAX_USERS_NUMBER; i++) if(!strcmp(name, Users[i].Username)) return Users[i].GetQueueID; // if equal
   return -1;
+}
+
+int SenderAtFoundServer(char sender[], int server_id) {
+  int i;
+  P(user_server_SemID);
+  for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
+    if ((strcmp(user_server[i].user_name, sender) == 0) && (user_server[i].server_id == server_id)) {
+      V(user_server_SemID);
+      return 1;
+    }
+  }
+  V(user_server_SemID);
+  return 0;
 }
 
 int WhereToLogin() {
