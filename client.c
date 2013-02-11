@@ -9,6 +9,7 @@
 #include <sys/shm.h>
 #include <sys/sem.h>
 #include <sys/time.h>
+#include <errno.h>
 
 #define USER_NAME_MAX_LENGTH 10
 #define RESPONSE_LENGTH 50
@@ -172,7 +173,7 @@ void Get() {
   GetUsersList();
   GetRoomsList();
   GetMessage();
-  sleep(5);
+  // sleep(5);
 }
 
 void GetResponse() {
@@ -185,7 +186,7 @@ void GetResponse() {
     if (msg_response.response_type == LOGOUT_SUCCESS) Quit();
     if (msg_response.response_type == LOGIN_SUCCESS) { LoggedIn = 1; kill(getppid(), 31); }
     if (msg_response.response_type == PING) SendHeartBeat();
-    PrintMenu();
+    if (strcmp(msg_response.content, "ping") != 0) PrintMenu();
   }
 }
 
@@ -287,11 +288,14 @@ void SendMsg(int type) {
 }
 
 void SendHeartBeat() {
+  int SthSent;
   MSG_REQUEST msg_request;
     msg_request.type = REQUEST;
     msg_request.request_type = PONG;
     strcpy(msg_request.user_name, MyUsername);
-  msgsnd(MyServerID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), 0);
+  SthSent = msgsnd(MyServerID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), 0);
+  printf("wysylam hertbita %d\n", SthSent);
+  printf("errno: %d", errno);
 }
 
 void SendEnterRoom() {

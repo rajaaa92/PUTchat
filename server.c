@@ -13,12 +13,14 @@
 #define USER_NAME_MAX_LENGTH 10
 #define RESPONSE_LENGTH 50
 #define MAX_SERVERS_NUMBER 15
-#define MAX_USERS_NUMBER 20 //na jednym serwerze
+#define MAX_USERS_NUMBER 20
 #define ROOM_NAME_MAX_LENGTH 10
 #define MAX_MSG_LENGTH 256
+
 #define SHM_SERVER_IDS 15
 #define SHM_USER_SERVER 20
 #define SHM_ROOM_SERVER 25
+
 #define SEM_SERVER_IDS 35
 #define SEM_USER_SERVER 36
 #define SEM_ROOM_SERVER 37
@@ -139,6 +141,7 @@ void GetRoom();
 void SendRoomsList(int);
 void SendRoomLeft(int);
 void LeaveRoom(MSG_ROOM);
+void BeABadServer();
 
 int* server_ids;
 int server_ids_SemID;
@@ -151,11 +154,12 @@ int GetQueueID;
 int MenuPID;
 TUser Users[MAX_USERS_NUMBER];
 int Checking = 0;
+int Time = 0;
 
 // ---------------------------- MENU i main -------------------------------
 
 int main() {
-  int Time = 0;
+  // Unregister();
   CreateGetQueue();
   PrepareSemaphores();
   Register();
@@ -165,13 +169,6 @@ int main() {
     signal(30, PrintAllUsers);
     while(1) {
       Get();
-      if (Time % 5000 == 0) {
-        RemoveDeadClients();
-        ClearAlive();
-        Time = 0;
-      } else
-        if (Time % 1000 == 0) SendHeartBeat();
-      Time++;
     }
   }
   return 0;
@@ -209,7 +206,23 @@ void Get() {
   GetMessage();
   GetCheckServer(0);
   GetRoom();
-  sleep(5);
+  BeABadServer();
+  // sleep(5);
+}
+
+void BeABadServer() {
+  if (Time % 2000000 == 0) {
+    printf("wysylam hertbity\n");
+    SendHeartBeat();
+  }
+  if (Time % 10000000 == 0) {
+    printf("usuwam dedow\n");
+    RemoveDeadClients();
+    printf("clear alive\n");
+    ClearAlive();
+    Time = 0;
+  }
+  Time++;
 }
 
 void GetLogin() {
@@ -241,17 +254,16 @@ void GetRequest() {
   MSG_REQUEST msg_request;
   int SthReceived = msgrcv(GetQueueID, &msg_request, sizeof(MSG_REQUEST) - sizeof(long), REQUEST, IPC_NOWAIT);
   if (SthReceived > 0) {
-    printf("Jest jakis request\n");
     if (msg_request.request_type == USERS_LIST_TYPE) SendUsersList(UserQueueID(msg_request.user_name));
-    if (msg_request.request_type == PONG) UpdateAlive(msg_request.user_name);
-    if (msg_request.request_type == ROOMS_LIST_TYPE) { printf("jest to o pokoje\n"); SendRoomsList(UserQueueID(msg_request.user_name)); }
+    if (msg_request.request_type == PONG) { printf("przyszedl pong\n"); UpdateAlive(msg_request.user_name); }
+    if (msg_request.request_type == ROOMS_LIST_TYPE) { SendRoomsList(UserQueueID(msg_request.user_name)); }
   }
 }
 
 void UpdateAlive(char username[]) {
   int i;
   for (i = 0; i < MAX_USERS_NUMBER; i++) {
-    if (strcmp(Users[i].Username, username) == 0) Users[i].Alive = 1;
+    if (strcmp(Users[i].Username, username) == 0) {Users[i].Alive = 1; printf("user alive: %s\n", Users[i].Username);}
   }
 }
 
@@ -278,6 +290,23 @@ void GetMessage() {
         }
       }
       V(user_server_SemID);
+      P(room_server_SemID);
+      for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) { // wysylka do pok
+        if (strcmp(room_server[i].room_name, msg_chat_message.receiver) == 0) {
+          if (room_server[i].server_id == GetQueueID) {
+            SendMsgToUser(msg_chat_message);
+            Sent = 1;
+          } else {
+            Checking = 1;
+            SendCheckServer(room_server[i].server_id);
+            if (GetCheckServer(1)) {
+              SendMsgToServer(room_server[i].server_id, msg_chat_message);
+              Sent = 1;
+            }
+          }
+        }
+      }
+      V(room_server_SemID);
     } else { // if public
       P(user_server_SemID);
       for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
@@ -337,9 +366,8 @@ void GetRoom() {
   int i, RoomUsersFromMyServer = 0;
   int SthReceived = msgrcv(GetQueueID, &msg_room, sizeof(MSG_ROOM) - sizeof(long), ROOM, IPC_NOWAIT);
   if (SthReceived > 0) {
-    printf("Dostalem requesta o room\n");
+    printf("get room\n");
     if (msg_room.operation_type == ENTER_ROOM) {
-      printf("Ktos chce wejsc do roomu\n");
       RegisterUserInRoom(msg_room.user_name, msg_room.room_name);
       SendRoomEntered(UserQueueID(msg_room.user_name));
     }
@@ -372,29 +400,32 @@ void SendRoomsList(int UserQueueID) {
   int i, SthSent;
   MSG_USERS_LIST msg_rooms_list;
     msg_rooms_list.type = ROOMS_LIST_TYPE;
-    printf("czyszcze pokoje\n");
     for (i = 0; i < (MAX_SERVERS_NUMBER * MAX_USERS_NUMBER); i++) {
       strcpy(msg_rooms_list.users[i], "");
     }
-    printf("wyczyscilem pokoje\n");
     P(room_server_SemID);
-    printf("kopiuje niepuste pokoje\n");
     for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
       if (room_server[i].server_id != -1) {
         strcpy(msg_rooms_list.users[i], room_server[i].room_name);
-        printf("skopiowalem %s\n", room_server[i].room_name);
       }
     }
-    printf("Skopiowane\n");
     V(room_server_SemID);
     SthSent = msgsnd(UserQueueID, &msg_rooms_list, sizeof(MSG_USERS_LIST) - sizeof(long), IPC_NOWAIT);
-    printf("%d - wyslalem liste roomow\n", SthSent);
 }
 
 void SendMsgToUser(MSG_CHAT_MESSAGE msg_chat_message) {
   int i;
   for (i = 0; i < MAX_USERS_NUMBER; i++) {
     if (strcmp(Users[i].Username, msg_chat_message.receiver) == 0) {
+      msgsnd(Users[i].GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
+    }
+  }
+}
+
+void SendMsgToRoom(MSG_CHAT_MESSAGE msg_chat_message) {
+  int i;
+  for (i = 0; i < MAX_USERS_NUMBER; i++) {
+    if ((strcmp(Users[i].Room, msg_chat_message.receiver) == 0) && (strcmp(Users[i].Username, msg_chat_message.sender) != 0)) {
       msgsnd(Users[i].GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), 0);
     }
   }
@@ -564,15 +595,27 @@ void PrepareUsersArray() {
 }
 
 void PrepareSemaphores() {
+
   server_ids_SemID = semget(SEM_SERVER_IDS, 1, IPC_EXCL | IPC_CREAT | 0777);
-  if (server_ids_SemID < 0) server_ids_SemID = semget(SEM_SERVER_IDS, 1, 0); // sem juz istnieje
-  else semctl(server_ids_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+  if (server_ids_SemID < 0) {
+    server_ids_SemID = semget(SEM_SERVER_IDS, 1, 0); // sem juz istnieje
+  } else {
+    semctl(server_ids_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+  }
+
   user_server_SemID = semget(SEM_USER_SERVER, 1, IPC_EXCL | IPC_CREAT | 0777);
-  if (user_server_SemID < 0) user_server_SemID = semget(SEM_USER_SERVER, 1, 0); // sem juz istnieje
-  else semctl(user_server_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+  if (user_server_SemID < 0) {
+    user_server_SemID = semget(SEM_USER_SERVER, 1, 0); // sem juz istnieje
+  } else {
+    semctl(user_server_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+  }
+
   room_server_SemID = semget(SEM_ROOM_SERVER, 1, IPC_EXCL | IPC_CREAT | 0777);
-  if (room_server_SemID < 0) room_server_SemID = semget(SEM_ROOM_SERVER, 1, 0); // sem juz istnieje
-  else semctl(room_server_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+  if (room_server_SemID < 0) {
+    room_server_SemID = semget(SEM_ROOM_SERVER, 1, 0); // sem juz istnieje
+  } else {
+    semctl(room_server_SemID, 0, SETVAL, 1); // semafor zostanie utworzony
+  }
 }
 
 // ------------------------- AFTER -----------------------------------
@@ -588,11 +631,28 @@ void Unregister() {
   kill(MenuPID, 9);
   P(server_ids_SemID);
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] == GetQueueID) { server_ids[i] = -1; break; }
-  shmdt(server_ids);
   V(server_ids_SemID);
   P(user_server_SemID);
-  shmdt(user_server);
+  for (i = 0; i < MAX_SERVERS_NUMBER; i++) {
+    if (user_server[i].server_id == GetQueueID) {
+      user_server[i].server_id = -1;
+      strcpy(user_server[i].user_name, "");
+      break;
+    }
+  }
   V(user_server_SemID);
+  P(room_server_SemID);
+  for (i = 0; i < MAX_SERVERS_NUMBER; i++) {
+    if (room_server[i].server_id == GetQueueID) {
+      room_server[i].server_id = -1;
+      strcpy(room_server[i].room_name, "");
+      break;
+    }
+  }
+  V(room_server_SemID);
+  shmdt(server_ids);
+  shmdt(user_server);
+  shmdt(room_server);
   msgctl(GetQueueID, IPC_RMID, NULL);
   if (AmILastServer) {
     P(server_ids_SemID);
@@ -619,7 +679,7 @@ void RegisterUser(char name[], int ipc_num) {
   int i;
   P(user_server_SemID);
   for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
-    if (!strcmp(user_server[i].user_name, "")) { // 0 if equal
+    if (strcmp(user_server[i].user_name, "") == 0) { // 0 if equal
       user_server[i].server_id = GetQueueID;
         strcpy(user_server[i].user_name, name);
       V(user_server_SemID);
@@ -633,8 +693,12 @@ void RegisterUser(char name[], int ipc_num) {
 
 void LogoutUser(char name[]) {
   int i;
+  MSG_ROOM msg_room;
   for (i = 0; i < MAX_USERS_NUMBER; i++)
     if (!strcmp(Users[i].Username, name)) {
+      strcpy(msg_room.user_name, Users[i].Username);
+      strcpy(msg_room.room_name, Users[i].Room);
+      LeaveRoom(msg_room);
       strcpy(Users[i].Username, "");
       Users[i].GetQueueID = -1;
       Users[i].Alive = 0;
@@ -673,13 +737,13 @@ void PrintServers() {
   int i;
   P(server_ids_SemID);
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) printf("Serwer #%d: %d\n", i, server_ids[i]);
-    V(server_ids_SemID);
+  V(server_ids_SemID);
 }
 
 void RemoveDeadClients() {
   int i;
   for (i = 0; i < MAX_USERS_NUMBER; i++) {
-    if (Users[i].Alive == 0) { SendLoggedOut(Users[i].GetQueueID); LogoutUser(Users[i].Username); }
+    if (Users[i].Alive == 0) { printf("useer ded: %s\n", Users[i].Username); SendLoggedOut(Users[i].GetQueueID); LogoutUser(Users[i].Username); }
   }
 }
 
@@ -691,37 +755,41 @@ void ClearAlive() {
 void RegisterUserInRoom(char username[], char roomname[]) {
   int i, RoomExists = 0, where;
   MSG_ROOM msg_room;
+  printf("register in room\n");
   if (strcmp(roomname, "") != 0) { // opusc room
     strcpy(msg_room.user_name, username);
     for (i = 0; i < MAX_USERS_NUMBER; i++)
       if(strcmp(Users[i].Username, username) == 0) strcpy(msg_room.room_name, Users[i].Room);
-    printf("robie leavrooma dla %s, %s\n", msg_room.room_name, msg_room.user_name);
     LeaveRoom(msg_room);
   }
+  P(room_server_SemID);
   for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++)
     if ((room_server[i].server_id == GetQueueID) && (strcmp(room_server[i].room_name, roomname) == 0)) RoomExists = 1;
   if (!RoomExists) {
-    printf("Room nie istnieje\n");
     where = WhereToRegister();
-    printf("where = %d\n", where);
     strcpy(room_server[WhereToRegister()].room_name, roomname);
     room_server[WhereToRegister()].server_id = GetQueueID;
-    printf("Utworzylem nowy room\n");
   }
+  V(room_server_SemID);
   for (i = 0; i < MAX_USERS_NUMBER; i++) {
-    if (strcmp(Users[i].Username, username) == 0) { strcpy(Users[i].Room, roomname); printf("przydzielilem user do roomu\n"); }
+    if (strcmp(Users[i].Username, username) == 0) { strcpy(Users[i].Room, roomname); }
   }
 }
 
 void LeaveRoom(MSG_ROOM msg_room) {
   int i, RoomUsersFromMyServer = 0;
   for (i = 0; i < MAX_USERS_NUMBER; i++)
-    if (strcmp(Users[i].Username, msg_room.user_name) == 0) { printf("wykasowuje rooma lokalnie\n"); strcpy(Users[i].Room, ""); }
+    if ((strcmp(Users[i].Room, msg_room.room_name) == 0) && (strcmp(msg_room.room_name, "") != 0)) {
+      RoomUsersFromMyServer++;
+      printf("tego rooma ode mnie uzywa %d\n", RoomUsersFromMyServer);
+    }
   for (i = 0; i < MAX_USERS_NUMBER; i++)
-    if (strcmp(Users[i].Room, msg_room.room_name) == 0) { RoomUsersFromMyServer++; printf("tego rooma ode mnie uzywa %d\n", RoomUsersFromMyServer); }
+    if (strcmp(Users[i].Username, msg_room.user_name) == 0) { strcpy(Users[i].Room, ""); }
+  RoomUsersFromMyServer--;
   if (!RoomUsersFromMyServer) {
     printf("nie ma ludzi ode mnie na tym serwerze\n");
     printf("bede usuwal globalnie rooma %s\n", msg_room.room_name);
+    P(room_server_SemID);
     for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
       if ((strcmp(room_server[i].room_name, msg_room.room_name) == 0) && (room_server[i].server_id == GetQueueID)) {
         printf("to moj room i ma ta nazwe: %s, wykasuje go\n", msg_room.room_name);
@@ -729,6 +797,7 @@ void LeaveRoom(MSG_ROOM msg_room) {
         room_server[i].server_id = -1;
       }
     }
+    V(room_server_SemID);
   }
 }
 
@@ -753,14 +822,14 @@ void V(int SemID) {
   semop(SemID, &sem_buf, 1);
 }
 
-int AmILastServer() {
+int AmILastServer() { // ja juz sie odlczylem
   int i;
   int NumberOfServers = 0;
   P(server_ids_SemID);
   for (i = 0; i < MAX_SERVERS_NUMBER; i++) if (server_ids[i] != -1) NumberOfServers++;
   V(server_ids_SemID);
-  if (NumberOfServers == 1) return 1;
-  else return 0;
+  if (NumberOfServers > 0) return 0;
+  else return 1;
 }
 
 int UserQueueID(char name[]) {
