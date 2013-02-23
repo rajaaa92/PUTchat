@@ -214,7 +214,7 @@ void Get() {
   GetCheckServer(0);
   GetRoom();
   BeABadServer();
-  sleep(5);
+  //sleep(5);
 }
 
 void GetLogin() {
@@ -264,10 +264,8 @@ void GetMessage() {
   MSG_CHAT_MESSAGE msg_chat_message;
   int SthReceived = msgrcv(GetQueueID, &msg_chat_message, sizeof(MSG_CHAT_MESSAGE) - sizeof(long), MESSAGE, IPC_NOWAIT);
   if (SthReceived > 0) {
-    printf("mam widomosc\n");
     if (msg_chat_message.msg_type == PRIVATE) {
       P(user_server_SemID);
-      printf("przelatuje ludzi\n");
       for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) {
         if (strcmp(user_server[i].user_name, msg_chat_message.receiver) == 0) {
           if (user_server[i].server_id == GetQueueID) {
@@ -287,12 +285,9 @@ void GetMessage() {
       if (!Sent) {
         P(room_server_SemID);
         SendingToRoom = 1;
-        printf("przelatuje pokoje\n");
         for (i = 0; i < MAX_SERVERS_NUMBER * MAX_USERS_NUMBER; i++) { // wysylka do pok
           if (strcmp(room_server[i].room_name, msg_chat_message.receiver) == 0) {
-            printf("znalazlem pokoj\n");
             if (room_server[i].server_id == GetQueueID) {
-              printf("pokoj jest u mnie\n");
               SendMsgToUser(msg_chat_message, room_server[i].room_name);
               Sent = 1;
             } else {
@@ -369,7 +364,6 @@ void GetRoom() {
   int i, RoomUsersFromMyServer = 0;
   int SthReceived = msgrcv(GetQueueID, &msg_room, sizeof(MSG_ROOM) - sizeof(long), ROOM, IPC_NOWAIT);
   if (SthReceived > 0) {
-    printf("get room\n");
     if (msg_room.operation_type == ENTER_ROOM) {
       RegisterUserInRoom(msg_room.user_name, msg_room.room_name);
       SendRoomEntered(UserQueueID(msg_room.user_name));
@@ -511,7 +505,6 @@ void SendRoomEntered(int ipc_num) {
     msg_response.response_type = ENTERED_ROOM_SUCCESS;
     strcpy(msg_response.content, "Room entered.\n");
   msgsnd(ipc_num, &msg_response, sizeof(MSG_RESPONSE) - sizeof(long), 0);
-  printf("Wyslalem room entered\n");
 }
 
 void SendRoomLeft(int ipc_num) {
@@ -777,7 +770,6 @@ void ClearAlive() {
 void RegisterUserInRoom(char username[], char roomname[]) {
   int i, RoomExists = 0, where;
   MSG_ROOM msg_room;
-  printf("register in room\n");
   if (strcmp(roomname, "") != 0) { // opusc room
     strcpy(msg_room.user_name, username);
     for (i = 0; i < MAX_USERS_NUMBER; i++)
@@ -803,18 +795,14 @@ void LeaveRoom(MSG_ROOM msg_room) {
   for (i = 0; i < MAX_USERS_NUMBER; i++)
     if ((strcmp(Users[i].Room, msg_room.room_name) == 0) && (strcmp(msg_room.room_name, "") != 0)) {
       RoomUsersFromMyServer++;
-      printf("tego rooma ode mnie uzywa %d\n", RoomUsersFromMyServer);
     }
   for (i = 0; i < MAX_USERS_NUMBER; i++)
     if (strcmp(Users[i].Username, msg_room.user_name) == 0) { strcpy(Users[i].Room, ""); }
   RoomUsersFromMyServer--;
   if (!RoomUsersFromMyServer) {
-    printf("nie ma ludzi ode mnie na tym serwerze\n");
-    printf("bede usuwal globalnie rooma %s\n", msg_room.room_name);
     P(room_server_SemID);
     for (i = 0; i < MAX_USERS_NUMBER * MAX_SERVERS_NUMBER; i++) {
       if ((strcmp(room_server[i].room_name, msg_room.room_name) == 0) && (room_server[i].server_id == GetQueueID)) {
-        printf("to moj room i ma ta nazwe: %s, wykasuje go\n", msg_room.room_name);
         strcpy(room_server[i].room_name, "");
         room_server[i].server_id = -1;
       }

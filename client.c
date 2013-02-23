@@ -174,7 +174,7 @@ void Get() {
   GetUsersList();
   GetRoomsList();
   GetMessage();
-  sleep(5);
+  //sleep(5);
 }
 
 void GetResponse() {
@@ -268,18 +268,15 @@ void SendPrintRooms() {
 void SendMsg(int type) {
   char c;
   int SthSent;
-  time_t time_now = time(NULL);
-  struct tm time_now_local = *localtime(&time_now);
+  time_t time_now;
+  struct tm * time_now_local;
   MSG_CHAT_MESSAGE msg_chat_message;
     msg_chat_message.type = MESSAGE;
     msg_chat_message.msg_type = type;
     strcpy(msg_chat_message.sender, MyUsername);
-    msg_chat_message.send_time[0] = (char)(((int)'0') + (time_now_local.tm_hour / 10));
-    msg_chat_message.send_time[1] = (char)(((int)'0') + (time_now_local.tm_hour % 10));
-    msg_chat_message.send_time[2] = ':';
-    msg_chat_message.send_time[3] = (char)(((int)'0') + (time_now_local.tm_min / 10));
-    msg_chat_message.send_time[4] = (char)(((int)'0') + (time_now_local.tm_min % 10));
-    msg_chat_message.send_time[5] = '\0';
+    time(&time_now);
+    time_now_local = localtime(&time_now);
+    strftime(msg_chat_message.send_time, 6, "%R", time_now_local);
   if (type == PRIVATE) {
     printf("Receiver:\n");
     scanf("%s", msg_chat_message.receiver);
